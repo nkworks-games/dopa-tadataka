@@ -1,0 +1,1109 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>ドパ脳忠敬</title>
+<meta name="description" content="伊能忠敬が17年かけた日本測量を60秒で。ビートに合わせてタップして、日本地図を爆速で完成させよう。">
+<!-- ▼Xのカード表示用（公開URLに合わせて書き換える） -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="ドパ脳忠敬">
+<meta property="og:description" content="伊能忠敬が17年かけた日本測量を60秒で。あなたは忠敬の何万倍速？">
+<meta property="og:url" content="https://nkworks-games.github.io/dopa-tadataka/">
+<meta property="og:image" content="https://nkworks-games.github.io/dopa-tadataka/card.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#efe2c4">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Yuji+Syuku&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:#efe2c4;overflow:hidden;overscroll-behavior:none}
+body{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block;position:absolute;left:0;top:0}
+#sa{position:fixed;left:0;top:0;width:0;height:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden}
+</style>
+</head>
+<body>
+<div id="sa"></div>
+<canvas id="c"></canvas>
+<noscript>JavaScriptをオンにして遊んでください</noscript>
+<script>
+(() => {
+'use strict';
+// ================= 基本設定（数値はここで調整） =================
+const TIME_LIMIT = 60;            // 制限時間（秒）※船の移動・ラッシュ・演出の間は減らない
+const BPM = [120, 136, 150, 164]; // 島ごとのテンポ（蝦夷地→本州→四国→九州で速くなる）
+const SWEEP = 28;                 // 測量の線がゆれる幅（左右に何度）。ビートの瞬間に梵天竹と重なる
+const JUDGE = [4, 9, 16];         // PERFECT / GREAT / GOOD になるズレ（度）
+const TAP_LAG = 0.035;            // タッチしてから反応するまでの遅れの補正（秒）
+const BASE = [1000, 400, 100, 0]; // 1本あたりの小判（両）
+const INFLA = 1.18;               // コンボ1つごとに小判×1.18（どんどんインフレ）
+const DOPA_N = 8, DOPA_MUL = 10, DOPA_EASY = 1.5; // ドパ脳モード：8本のあいだ小判×10、判定が1.5倍ゆるい
+const GOLD_MUL = 100;             // 金の梵天竹をPERFECTで大当たり：小判×100
+const RUSH_AT = '犬吠埼', RUSH_BEATS = 8, RUSH_STEP = 4, RUSH_GOAL = 99; // 九十九里浜ラッシュ：犬吠埼に着いたら8拍のあいだ連打、1回4里、目標99里
+const TIERS = [11, 20, 34, 54, 85]; // 平均誤差(km)で 忠敬の反応が変わる境目
+const EDO_SEC = 17 * 365.25 * 86400; // 忠敬の測量17年を秒にしたもの
+
+const W = 360;
+const PAPER = '#efe2c4', INK = '#2a2420', SUMI = '#6b6053', USU = '#a8987c', SHU = '#c8321e', DARK = '#1d1530', GOLD = '#ffd23a';
+const NEON = { cyan: '#00eaff', pink: '#ff2bd6', yellow: '#ffe600', green: '#39ff88', orange: '#ff8a00' };
+const FD = "'Yuji Syuku','Hiragino Mincho ProN','Yu Mincho',serif";       // 筆文字
+const FN = "'Dela Gothic One','Hiragino Sans','Yu Gothic',sans-serif";   // ドパ文字
+const URL_PUBLIC = 'https://nkworks-games.github.io/dopa-tadataka/';
+
+// ================= 日本のデータ（測量点：緯度・経度・地名） =================
+const ISL = [
+  { name: '蝦夷地', zoom: 1.0, pts: [[41.77, 140.73, '函館'], [42.52, 140.38, '長万部'], [42.30, 140.98, '室蘭'], [42.63, 141.60, '苫小牧'], [41.93, 143.25, '襟裳岬'], [42.98, 144.38, '釧路'], [43.04, 144.85, '厚岸'], [43.39, 145.82, '納沙布岬'], [44.35, 145.33, '知床岬'], [44.02, 144.27, '網走'], [44.36, 143.35, '紋別'], [45.52, 141.94, '宗谷岬'], [43.94, 141.64, '留萌'], [43.19, 141.00, '小樽'], [43.37, 140.47, '積丹岬'], [41.87, 140.13, '江差'], [41.40, 140.20, '白神岬']] },
+  { name: '本州', zoom: 0.95, pts: [[41.55, 140.91, '大間崎'], [41.43, 141.46, '尻屋崎'], [40.51, 141.49, '八戸'], [39.64, 141.98, '宮古'], [38.28, 141.55, '牡鹿半島'], [38.20, 140.98, '仙台'], [36.99, 140.98, '塩屋埼'], [35.71, 140.87, '犬吠埼'], [34.90, 139.89, '野島崎'], [35.67, 139.79, '江戸'], [35.14, 139.65, '三浦'], [34.60, 138.85, '石廊崎'], [34.60, 138.22, '御前崎'], [34.58, 137.01, '伊良湖岬'], [34.28, 136.90, '大王崎'], [33.44, 135.76, '潮岬'], [34.22, 135.15, '和歌山'], [34.65, 135.43, '大坂'], [34.60, 133.95, '岡山'], [34.36, 132.45, '広島'], [33.96, 130.94, '下関'], [34.42, 131.40, '萩'], [35.43, 132.63, '日御碕'], [35.53, 134.23, '鳥取'], [35.78, 135.22, '経ヶ岬'], [36.60, 136.62, '金沢'], [37.53, 137.33, '能登'], [36.77, 137.22, '富山'], [37.92, 139.05, '新潟'], [38.92, 139.83, '酒田'], [39.97, 139.70, '男鹿'], [41.26, 140.34, '竜飛崎']] },
+  { name: '四国', zoom: 1.4, pts: [[34.23, 134.62, '鳴門'], [33.25, 134.18, '室戸岬'], [33.50, 133.57, '高知'], [32.72, 133.02, '足摺岬'], [33.22, 132.56, '宇和島'], [33.34, 132.02, '佐田岬'], [34.07, 133.00, '今治'], [34.34, 134.05, '高松']] },
+  { name: '九州', zoom: 1.3, pts: [[33.95, 130.96, '門司'], [33.65, 131.73, '国東'], [33.25, 131.87, '佐賀関'], [31.91, 131.47, '宮崎'], [31.36, 131.34, '都井岬'], [30.99, 130.66, '佐多岬'], [31.40, 130.14, '野間岬'], [32.30, 129.99, '天草'], [32.75, 129.87, '長崎'], [33.37, 129.55, '平戸'], [33.45, 129.97, '唐津'], [33.60, 130.40, '博多']] },
+];
+const KX = 111.32 * Math.cos(36 * Math.PI / 180), KY = 110.95; // 緯度経度 → km
+const toKm = (la, lo) => ({ x: (lo - 137) * KX, y: (37 - la) * KY });
+for (const I of ISL) I.P = I.pts.map(p => Object.assign(toKm(p[0], p[1]), { n: p[2] }));
+const NSEG = ISL.reduce((a, I) => a + I.P.length, 0);
+const ROSES = [[43.2, 142.8], [38.6, 139.6], [35.2, 135.6], [32.6, 131.2], [36.2, 142.2], [33.2, 136.4]].map(p => toKm(p[0], p[1]));
+const BEACH0 = toKm(35.71, 140.87), BEACH1 = toKm(35.30, 140.41); // 九十九里浜（犬吠埼 → 太東崎）
+
+// 忠敬のコメント（誤差が小さい順）
+const COMMENTS = [
+  ['……わしより正確じゃと!? 弟子にしてくだされ', 'わしの17年は 何だったんじゃ…'],
+  ['見事じゃ！ 幕府に献上できる出来じゃ', 'うむ、この地図なら 日本を任せられる'],
+  ['ふむ、日本には見える。まだ歩き足りんのう', '悪くない。だが 船乗りは少し迷うぞ'],
+  ['これは…日本…か？ 形がとろけておる', '島がどれも 泳いでおるのう…'],
+  ['わしの17年を 60秒で台無しにしおって', 'この地図で船を出したら 全員遭難じゃ'],
+  ['これはもう別の国じゃ。新しい国を発見したな', '……歩き直してまいれ。一から、全部じゃ'],
+];
+// プレイ中の実況（PERFECT / GREAT / GOOD / ズレ）
+const INO_SAY = [['うまい!', '見事!', 'それじゃ!', 'ピッタリ!', '天才か!'], ['よいぞ', 'うむ!', 'なかなか'], ['ちとズレた', 'おしい'], ['ずれとる!', 'おい!', 'どこ測っとる!']];
+const TIER_NAME = ['', '覚醒', '超覚醒', '神測量'];
+// ノンストップ（次のポイントで1回目の通過に押し続けた回数）：3・6・10・15連で段階アップ
+const CHAIN_NAME = ['', '爆速', '超爆速', '音速', '光速'];
+const CHAIN_MUL = [1, 1.2, 1.5, 2, 3];
+const CHAIN_SAY = ['', 'はやい!', 'もっとじゃ!', '音を超えたぞ!!', '光より速い!!'];
+
+// ================= 画面サイズ =================
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let H = 700, S = 1, DPR = 1, OX = 0, OY = 0, paperCv = null, VZ = 1;
+const L = {};
+function layout() {
+  L.hudH = 58;
+  L.safeTop = 150; L.safeBot = H - 120; // 次の目標が必ず入る範囲（上の帯・下の忠敬とかぶらない）
+  L.cy = (L.safeTop + L.safeBot) / 2;
+  L.gY = H - 30;
+  L.mute = { x: W - 20, y: H - 30 };
+  L.ino = { x: 30, y: H - 82 };
+}
+function resize() {
+  const sa = document.getElementById('sa'), cs = getComputedStyle(sa);
+  const st = parseFloat(cs.paddingTop) || 0, sb = parseFloat(cs.paddingBottom) || 0;
+  const vw = window.innerWidth, vh = window.innerHeight - st - sb;
+  S = Math.min(vw / W, vh / 600); H = Math.min(vh / S, 820);
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  const cw = W * S, ch = H * S; OX = (vw - cw) / 2; OY = st + (vh - ch) / 2;
+  Object.assign(cv.style, { width: cw + 'px', height: ch + 'px', left: OX + 'px', top: OY + 'px' });
+  cv.width = Math.round(cw * DPR); cv.height = Math.round(ch * DPR);
+  layout(); makePaper();
+}
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function makePaper() { // 和紙の質感（1回だけ描いておく）
+  paperCv = document.createElement('canvas'); paperCv.width = cv.width; paperCv.height = cv.height;
+  const p = paperCv.getContext('2d'); p.setTransform(DPR * S, 0, 0, DPR * S, 0, 0);
+  p.fillStyle = PAPER; p.fillRect(0, 0, W, H);
+  const r = rng(7);
+  for (let i = 0; i < 1100; i++) {
+    const x = r() * W, y = r() * H, l = 3 + r() * 16, a = r() * Math.PI * 2;
+    p.strokeStyle = `rgba(120,95,55,${0.03 + r() * 0.06})`; p.lineWidth = 0.4 + r() * 0.8;
+    p.beginPath(); p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + r() * 3, y + Math.sin(a) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l); p.stroke();
+  }
+  const g = p.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(90,60,20,0.22)'); p.fillStyle = g; p.fillRect(0, 0, W, H);
+}
+window.addEventListener('resize', resize);
+
+// ================= 保存（音のオンオフ・自己ベスト） =================
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
+};
+
+// ================= サウンド =================
+let AC = null, NOISE = null, OUT = null, muted = store.get('dp_mute', false);
+function audioInit() {
+  try {
+    if (!AC) {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      const b = AC.createBuffer(1, AC.sampleRate * 1.2, AC.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      NOISE = b;
+      OUT = AC.createGain(); OUT.gain.value = 0.8;
+      const comp = AC.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+      OUT.connect(comp); comp.connect(AC.destination);
+      const s = AC.createBufferSource(); s.buffer = AC.createBuffer(1, 1, 22050); s.connect(AC.destination); s.start(0);
+    }
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) { }
+}
+function toneAt(t, f1, f2, dur, type, vol) {
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f1, t); if (f2 !== f1) o.frequency.exponentialRampToValueAtTime(Math.max(1, f2), t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  o.connect(g); g.connect(OUT); o.start(t); o.stop(t + dur + 0.03);
+}
+function noiseAt(t, dur, vol, type, freq) {
+  const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  s.buffer = NOISE; f.type = type; f.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  s.connect(f); f.connect(g); g.connect(OUT); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
+}
+function tone(f1, f2, dur, type = 'sine', vol = 0.15, delay = 0) { if (!AC || muted) return; toneAt(AC.currentTime + delay, f1, f2, dur, type, vol); }
+function noise(dur, vol, type = 'lowpass', freq = 1200, delay = 0) { if (!AC || muted || !NOISE) return; noiseAt(AC.currentTime + delay, dur, vol, type, freq); }
+// 陽音階（レ・ミ・ソ・ラ・シ）で鳴らす：0=レ3, 5=レ4, 10=レ5 …
+const YO = [146.83, 164.81, 196.00, 220.00, 246.94];
+const note = d => YO[((d % 5) + 5) % 5] * Math.pow(2, Math.floor(d / 5));
+const SFX = {
+  hit(j, combo, cl = 0) {
+    noise(0.06, 0.2, 'lowpass', 380); // 竹を立てる音
+    if (j === 0) { const f = note(5 + combo % 11); tone(f, f, 0.12, 'square', 0.05); tone(f * 2, f * 2, 0.3, 'sine', 0.08, 0.01); noise(0.04, 0.06, 'highpass', 6500); }
+    else if (j === 1) { const f = note(5 + combo % 8); tone(f, f, 0.12, 'triangle', 0.1); tone(f * 1.5, f * 1.5, 0.12, 'sine', 0.04, 0.02); }
+    else if (j === 2) { tone(520, 470, 0.07, 'triangle', 0.1); noise(0.04, 0.08, 'bandpass', 1200); }
+    else { tone(160, 70, 0.3, 'sawtooth', 0.07); noise(0.18, 0.14, 'lowpass', 280); }
+    if (G.chain >= 1 && j <= 2) noise(0.14, 0.06 + cl * 0.025, 'bandpass', 900 + cl * 500);           // シュッ（ノンストップ）
+    if (cl >= 3 && j <= 2) tone(95, 45, 0.22, 'sine', 0.28);                                            // ドン
+    if (cl >= 4 && j <= 1) { const f = note(12 + G.chain % 5) * 2; tone(f, f, 0.18, 'sine', 0.05, 0.03); } // キラーン
+  },
+  tier() { [5, 6, 7, 8, 10].forEach((d, i) => tone(note(d) * 2, note(d) * 2, 0.12, 'square', 0.04, i * 0.04)); noise(0.4, 0.08, 'highpass', 3000); },
+  dopa() { tone(150, 1800, 0.6, 'sawtooth', 0.05); [5, 7, 8, 10, 12].forEach((d, i) => tone(note(d), note(d), 0.3, 'square', 0.04, 0.3 + i * 0.03)); noise(0.5, 0.3, 'lowpass', 150, 0.3); },
+  brk() { noise(0.3, 0.18, 'highpass', 2500); tone(900, 180, 0.35, 'triangle', 0.07); },
+  cup(cl) { tone(300, 2400, 0.35, 'sawtooth', 0.05); [5, 7, 10, 12].forEach((d, i) => tone(note(d + cl) * 2, note(d + cl) * 2, 0.14, 'square', 0.045, 0.08 + i * 0.05)); noise(0.3, 0.2, 'bandpass', 2500); },
+  cbrk() { tone(1200, 200, 0.3, 'triangle', 0.06); noise(0.2, 0.06, 'lowpass', 600); },
+  gold() { tone(1760, 1760, 0.15, 'sine', 0.08); tone(2637, 2637, 0.25, 'sine', 0.06, 0.1); },
+  jackpot() { for (let i = 0; i < 12; i++) { const f = note(5 + i) * 2; tone(f, f, 0.1, 'square', 0.045, i * 0.035); } [0, 0.15, 0.3].forEach(dl => { noise(0.25, 0.4, 'lowpass', 160, dl); tone(1568, 1568, 0.3, 'sine', 0.06, dl + 0.05); }); },
+  hazure() { tone(440, 440, 0.15, 'square', 0.04); tone(330, 330, 0.3, 'square', 0.04, 0.16); },
+  rush() { tone(700, 2200, 0.35, 'sine', 0.08); noise(0.3, 0.35, 'lowpass', 170, 0.05); },
+  rushTap(n) { const f = note(5 + n % 10) * 2; tone(f, f, 0.05, 'square', 0.03); noise(0.03, 0.08, 'lowpass', 500); },
+  island() { noise(0.35, 0.45, 'lowpass', 180); tone(110, 55, 0.45, 'sine', 0.35); [5, 7, 8, 10].forEach((d, i) => tone(note(d), note(d), 0.22, 'triangle', 0.08, 0.1 + i * 0.07)); },
+  ship() { noise(0.45, 0.14, 'bandpass', 900); noise(0.45, 0.1, 'bandpass', 500, 0.05); },
+  finish() { noise(0.5, 0.5, 'lowpass', 150); [5, 7, 8, 10, 12, 13, 15].forEach((d, i) => tone(note(d), note(d), 0.25, 'triangle', 0.08, 0.12 + i * 0.06)); },
+  clink() { tone(2600, 2600, 0.05, 'square', 0.018); tone(3900, 3900, 0.04, 'sine', 0.02, 0.01); },
+  tick() { tone(1250, 1250, 0.04, 'square', 0.04); },
+  timeup() { tone(900, 200, 0.6, 'sawtooth', 0.08); noise(0.4, 0.2, 'lowpass', 400); },
+  auto() { tone(300 + Math.random() * 400, 200, 0.05, 'triangle', 0.04); },
+  roll() { tone(1500, 1500, 0.025, 'square', 0.025); },
+  stamp() { noise(0.3, 0.5, 'lowpass', 220); tone(90, 50, 0.35, 'sine', 0.35); },
+};
+function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { } }
+
+// ================= BGM（和太鼓×電子音。コンボで音が増える） =================
+const MEL = [8, -1, 9, 8, 7, -1, 6, 7, 8, -1, 10, 9, 8, 7, 6, -1, 8, -1, 9, 8, 7, 8, 9, -1, 10, -1, 9, 8, 7, 6, 5, -1];
+const BASSR = [0, 0, 2, 3];
+const MUS = { step: 0 };
+function musicLv() { return G.dopa > 0 || G.phase === 'rush' ? 4 : Math.min(4, 1 + Math.max(tierOf(G.combo), chainLv())); }
+function playStep(st, w) {
+  const s = ((st % 16) + 16) % 16, bar = ((Math.floor(st / 16) % 4) + 4) % 4, lv = musicLv();
+  if (st < 8) { // カウント（よーい・測れ）
+    if (s === 0 || s === 4) { const f = s ? 1175 : 880; toneAt(w, f, f, 0.12, 'square', 0.06); toneAt(w, 140, 42, 0.2, 'sine', 0.5); }
+    return;
+  }
+  if (s % 4 === 0) { toneAt(w, 140, 42, 0.2, 'sine', 0.55); noiseAt(w, 0.05, 0.22, 'lowpass', 180); if (lv >= 4) toneAt(w, 62, 38, 0.32, 'sine', 0.3); } // 太鼓
+  if (s % 4 === 2) noiseAt(w, 0.03, 0.07, 'highpass', 7000);                                  // ハイハット
+  if (lv >= 3 && s % 2 === 1) noiseAt(w, 0.02, 0.035, 'highpass', 9000);                      // 16分のハイハット
+  if (s % 2 === 0) { const f = note(BASSR[bar] + (s % 4 === 2 ? 5 : 0)) / 2; toneAt(w, f, f, 0.14, 'triangle', 0.2); } // ベース
+  if (lv >= 2 && (s === 4 || s === 12)) { noiseAt(w, 0.12, 0.2, 'bandpass', 1600); noiseAt(w + 0.012, 0.08, 0.12, 'bandpass', 1250); } // 手拍子
+  if (lv >= 2 && s % 2 === 0) { const d = MEL[bar * 8 + s / 2]; if (d >= 0) { const f = note(d); toneAt(w, f, f * 0.996, 0.16, 'sawtooth', 0.04); toneAt(w, f * 2, f * 2, 0.05, 'square', 0.012); } } // 三味線風
+  if (lv >= 4) { const f = note([5, 7, 8, 10][s % 4] + BASSR[bar]) * 2; toneAt(w, f, f, 0.06, 'square', 0.025); } // キラキラ
+}
+function schedMusic() {
+  if (!AC || !OUT || G.state !== 'play' || G.phase === 'done' || G.phase === 'auto') return;
+  const tn = now(), lat = Math.min(0.2, AC.outputLatency || AC.baseLatency || 0), off = AC.currentTime - tn - lat;
+  if (beatTime(MUS.step / 4) < tn - 0.5) MUS.step = Math.ceil(beatPos(tn) * 4);
+  for (let g = 0; g < 16; g++) {
+    const st = beatTime(MUS.step / 4);
+    if (st > tn + 0.12) break;
+    if (st >= tn - 0.03 && !muted && AC.state === 'running') playStep(MUS.step, Math.max(AC.currentTime, st + off));
+    MUS.step++;
+  }
+}
+
+// ================= ゲームの状態 =================
+const G = { state: 'title', t: 0, fx: [], shake: 0, flash: 0, flashCol: '#fff', cam: { x: 0, y: 0, z: 0.6 }, combo: 0, dopa: 0, phase: '' };
+const now = () => performance.now() / 1000;
+const since = () => G.t - G.st;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function setState(s) { G.state = s; G.st = G.t; }
+const tierOf = c => c >= 30 ? 3 : c >= 20 ? 2 : c >= 10 ? 1 : 0;
+const chainLv = (c = G.chain || 0) => c >= 15 ? 4 : c >= 10 ? 3 : c >= 6 ? 2 : c >= 3 ? 1 : 0;
+const infla = () => Math.pow(INFLA, Math.min(G.combo, 80));
+// ビートの時計（島が変わる時にテンポを切り替える）
+function beatTime(b) { const c = G.tc; return c && b >= c.b ? c.t + (b - c.b) * c.len : G.bT0 + b * G.bLen; }
+function beatPos(t) { const c = G.tc; return c && t >= c.t ? c.b + (t - c.t) / c.len : (t - G.bT0) / G.bLen; }
+function commitTempo() { const c = G.tc; if (c && now() > c.t + 0.2) { G.bLen = c.len; G.bT0 = c.t - c.b * c.len; G.tc = null; } }
+function lineOffset(t) { const ph = beatPos(t), k = Math.floor(ph), u = ph - k; return SWEEP * (1 - Math.abs(1 - 2 * u)) * (k & 1 ? -1 : 1); } // ビートの瞬間に0（＝梵天竹と重なる）
+function beatPulse() { if (G.state !== 'play' || !G.bLen) return 0; const b = beatPos(now()); return Math.pow(1 - (b - Math.floor(b)), 4); }
+
+function pickGold() { // 金の梵天竹：蝦夷地1・本州2・四国九州1（ラッシュの区間はさける）
+  const r = (a, b) => a + Math.floor(Math.random() * (b - a + 1)), off = []; let acc = 0;
+  for (const I of ISL) { off.push(acc); acc += I.P.length; }
+  const rushK = off[1] + ISL[1].P.findIndex(p => p.n === RUSH_AT), mid = off[1] + Math.floor(ISL[1].P.length / 2);
+  return new Set([r(off[0] + 4, off[1] - 2), r(off[1] + 2, mid), r(mid + 1, off[2] - 2), r(off[2] + 1, NSEG - 2)].map(k => k === rushK ? k + 1 : k));
+}
+function startRun() {
+  setState('play');
+  const tn = now();
+  Object.assign(G, {
+    phase: 'intro', pt: 0, isl: 0, seg: 0, k: 0, time: TIME_LIMIT, used: 0, lastSec: 99,
+    score: 0, shown: 0, combo: 0, maxCombo: 0, gauge: 0, dopa: 0, cnt: [0, 0, 0, 0], dist: 0,
+    errs: [], my: [], closure: [], auto: false, autoT: 0, res: null, fx: [], comboPop: 0,
+    bT0: tn + 0.3, bLen: 60 / BPM[0], tc: null, usedBeat: 1, firstBeat: 2, ci0: 0, ci1: 0,
+    runT0: tn, elapsed: 0, hitstop: 0, zp: 0, scoreBump: 0, lastClink: 0, lastHit: null,
+    rushDone: false, rushPoles: [], inoE: 2, inoET: -9, inoTxt: '', inoTxtT: -9, goldSet: pickGold(), gold: false,
+    chain: 0, maxChain: 0, expBeat: 2, chainPop: 0, chainTaught: false,
+  });
+  MUS.step = 0;
+  const s = ISL[0].P[0]; G.pos = { x: s.x, y: s.y }; G.my.push([{ x: s.x, y: s.y }]);
+  newSeg();
+  G.cam = { x: G.pos.x + G.v.x / 2, y: G.pos.y + G.v.y / 2, z: ISL[0].zoom };
+}
+function newSeg() {
+  const I = ISL[G.isl], n = I.P.length, a = I.P[G.seg], b = I.P[(G.seg + 1) % n];
+  G.v = { x: b.x - a.x, y: b.y - a.y }; G.len = Math.hypot(G.v.x, G.v.y); G.th = Math.atan2(G.v.y, G.v.x);
+  G.tname = b.n + (G.seg + 1 === n ? '（出発点）' : '');
+  G.gold = !G.auto && G.goldSet.has(G.k);
+  if (G.gold) { big('金の梵天竹!!', 'PERFECTで 大当たり', GOLD, 1.0, 0, 114); SFX.gold(); inoSay('金じゃ!!', 0); }
+}
+function tap(tt) {
+  if (G.state !== 'play') return;
+  if (G.phase === 'rush') { rushTap(); return; }
+  if (G.phase !== 'aim') return;
+  const t = (tt || now()) - TAP_LAG, kb = Math.round(beatPos(t));
+  if (kb < G.firstBeat || kb <= G.usedBeat) return; // 始まる前・同じビートの2度押しは無視
+  const fp = kb === G.expBeat; // 次のポイントに移って 1回目の通過で押せたか
+  G.usedBeat = kb; G.expBeat = kb + 1;
+  record(lineOffset(t), false, fp);
+}
+function record(err, auto, fp) {
+  const I = ISL[G.isl], n = I.P.length, j = G.seg;
+  const a = Math.abs(err), r = err * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), v = G.v;
+  const np = { x: G.pos.x + v.x * c - v.y * s, y: G.pos.y + v.x * s + v.y * c };
+  const tp = I.P[(j + 1) % n];
+  G.errs.push(Math.hypot(np.x - tp.x, np.y - tp.y));
+  G.my[G.isl].push(np); G.pos = np; G.dist += G.len;
+  if (!auto) {
+    const ez = G.dopa > 0 ? DOPA_EASY : 1, gold = G.gold;
+    const J = a <= JUDGE[0] * ez ? 0 : a <= JUDGE[1] * ez ? 1 : a <= JUDGE[2] * ez ? 2 : 3;
+    G.cnt[J]++;
+    if (!gold) inoReact(J); // 忠敬の実況（このあと大きな出来事があれば上書き）
+    const prevTier = tierOf(G.combo), prevCL = chainLv();
+    if (J <= 1) { G.combo++; G.maxCombo = Math.max(G.maxCombo, G.combo); G.comboPop = 1; }
+    else { if (G.combo >= 10) comboBreak(); G.combo = 0; }
+    if (fp && J <= 2) { G.chain++; G.maxChain = Math.max(G.maxChain, G.chain); G.chainPop = 1; } else chainBreak(); // ノンストップ
+    const cl = chainLv();
+    let mul = infla() * (G.dopa > 0 ? DOPA_MUL : 1) * CHAIN_MUL[cl];
+    if (gold) mul *= J === 0 ? GOLD_MUL : J === 1 ? 10 : 1;
+    const pts = Math.round(BASE[J] * mul); G.score += pts;
+    if (G.dopa > 0) { G.dopa--; if (!G.dopa) G.gauge = 0; }
+    else { G.gauge = clamp(G.gauge + [12, 6, 0, -20][J] + (J <= 2 ? cl * 2 : 0), 0, 100); if (G.gauge >= 100) startDopa(); }
+    hitFx(np, J, pts);
+    SFX.hit(J, G.combo, cl);
+    if (J === 0) { buzz(12); G.hitstop = gold ? 0.1 : 0.05; G.zp = gold ? 0.14 : 0.07; }
+    const tier = tierOf(G.combo);
+    if (tier > prevTier) tierUp(tier);
+    else if (G.combo >= 40 && G.combo % 10 === 0) { big(`${G.combo} COMBO!!`, '', NEON.pink, 0.9, 0, 114); SFX.tier(); }
+    if (cl > prevCL) chainUp(cl);
+    if (gold) goldResult(J, pts);
+  } else {
+    G.fx.push({ k: 'spark', wx: np.x, wy: np.y, vx: 0, vy: -30, col: USU, t: 0, life: 0.3, r: 3 });
+    SFX.auto();
+  }
+  G.seg++; G.k++;
+  if (G.seg >= n) islandDone();
+  else { newSeg(); if (!auto && I.P[G.seg].n === RUSH_AT && !G.rushDone) startRush(); }
+}
+function tierUp(t) {
+  big(TIER_NAME[t] + '!!', `${G.combo} COMBO`, [NEON.cyan, NEON.pink, NEON.yellow, NEON.green][t], 1.0, 0, 114);
+  SFX.tier(); G.shake = Math.max(G.shake, 0.35); G.flash = 0.25; G.flashCol = t >= 3 ? NEON.green : NEON.pink;
+}
+function comboBreak() {
+  G.fx.push({ k: 'brk', s: `${G.combo} COMBO`, t: 0, life: 0.7 });
+  SFX.brk(); inoSay('わしのコンボが…', 5);
+}
+function chainBreak() { // ノンストップが途切れた
+  if (G.chain >= 3) { G.fx.push({ k: 'cbrk', s: `${G.chain}連`, t: 0, life: 0.8 }); SFX.cbrk(); if (G.chain >= 6) inoSay('息切れか？', 3); }
+  G.chain = 0;
+}
+function chainUp(cl) { // ノンストップの段階アップ
+  const sub = !G.chainTaught ? '止まらず 1回目の通過で押し続けろ!' : `ノンストップ${G.chain}連　小判×${CHAIN_MUL[cl]}`;
+  G.chainTaught = true;
+  G.fx.push({ k: 'cup', s: CHAIN_NAME[cl] + '!!', sub, cl, t: 0, life: 1.0 });
+  for (let i = 0; i < 14 + cl * 6; i++) { const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4, sp = 80 + Math.random() * 220; G.fx.push({ k: 'ember', x: W - 50, y: L.gY - 62, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, c: ['#ff5a00', '#ff9a00', '#ffd000', '#fff3a0'][i % 4], t: -Math.random() * 0.1, life: 0.6 + Math.random() * 0.3 }); }
+  SFX.cup(cl); G.flash = Math.max(G.flash, 0.22); G.flashCol = NEON.orange; G.shake = Math.max(G.shake, 0.25 + cl * 0.06); buzz(25);
+  inoSay(CHAIN_SAY[cl], cl >= 3 ? 0 : 1);
+}
+function startDopa() {
+  G.dopa = DOPA_N; G.gauge = 100;
+  big('ドパ脳モード!!', `脳汁ドバドバ　小判×${DOPA_MUL}`, NEON.yellow, 1.3, 0, 114);
+  SFX.dopa(); G.flash = 0.5; G.flashCol = NEON.yellow; G.shake = 0.4; buzz(40);
+  inoSay('ドパミンじゃあ!!', 6);
+}
+function goldResult(J, pts) {
+  G.fx = G.fx.filter(f => !(f.k === 'big' && f.s === '金の梵天竹!!')); // 予告の帯は結果が出たら消す
+  if (J === 0) {
+    big('大当たり!!', `小判×${GOLD_MUL}　+${fmtRyo(pts)}両`, GOLD, 1.5, 0, 114);
+    SFX.jackpot(); G.flash = 0.7; G.flashCol = GOLD; G.shake = 0.7; buzz(80);
+    spawnCoins(wx(G.pos.x), wy(G.pos.y), 40); inoSay('大当たりじゃあ!!', 0);
+  } else if (J === 1) { big('おしい!!', '小判×10', NEON.orange, 1.0, 0, 114); inoSay('あと少しじゃ!', 3); }
+  else { big('ハズレ…', '', USU, 0.9, 0, 114); SFX.hazure(); inoSay('もったいない…', 5); }
+}
+function islandDone() {
+  const I = ISL[G.isl], gap = G.errs[G.errs.length - 1];
+  G.closure.push(gap);
+  if (!G.auto) {
+    const bonus = Math.round(Math.max(0, 2000 - gap * 40) * infla());
+    G.score += bonus; spawnCoins(wx(G.pos.x), wy(G.pos.y), 12);
+    big(`${I.name} 完成!!`, `閉合誤差 ${fmtKm(gap)}km　+${fmtRyo(bonus)}両`, NEON.orange, 1.4, 0, 114);
+    SFX.island(); G.shake = 0.45; G.flash = 0.3; G.flashCol = '#fff'; buzz(30);
+    inoSay(gap < 15 ? 'よし 次じゃ!' : 'ちと閉じとらんぞ', gap < 15 ? 1 : 3);
+  }
+  if (G.isl < ISL.length - 1) {
+    if (G.auto) { nextIsland(); return; }
+    const to = ISL[G.isl + 1].P[0], kb = G.usedBeat;
+    G.tc = { b: kb + 1, t: beatTime(kb + 1), len: 60 / BPM[G.isl + 1] }; // 次の拍からテンポアップ
+    G.phase = 'ship'; G.shipFrom = { x: G.pos.x, y: G.pos.y }; G.shipTo = { x: to.x, y: to.y }; G.shipT0 = now(); G.shipT1 = G.tc.t;
+    big(`${ISL[G.isl + 1].name}へ!!`, '', NEON.cyan, G.shipT1 - G.shipT0 + 0.3);
+    SFX.ship();
+  } else {
+    G.phase = 'done'; G.pt = 0; G.elapsed = now() - G.runT0;
+    if (!G.auto) SFX.finish();
+    big('日本 完成!!', '', NEON.pink, 1.2);
+  }
+}
+function nextIsland() {
+  G.isl++; G.seg = 0; const s = ISL[G.isl].P[0];
+  G.pos = { x: s.x, y: s.y }; G.my.push([{ x: s.x, y: s.y }]); newSeg();
+  if (!G.auto) { G.phase = 'aim'; G.firstBeat = (G.tc ? G.tc.b : Math.ceil(beatPos(now()))) + 1; G.expBeat = G.firstBeat; }
+}
+// 九十九里浜ラッシュ
+function startRush() {
+  G.rushDone = true; G.phase = 'rush'; G.rushRi = 0; G.rushTaps = 0; G.rushClear = false;
+  G.rushB1 = G.usedBeat + 1 + RUSH_BEATS;
+  G.rushFrom = { x: G.pos.x, y: G.pos.y }; G.rushVec = { x: BEACH1.x - BEACH0.x, y: BEACH1.y - BEACH0.y };
+  G.fx = G.fx.filter(f => !(f.k === 'big' && f.ay !== undefined)); // 上の帯は消して 里数を見やすく
+  big('九十九里浜ラッシュ!!', '連打で 99里を走れ!!', NEON.yellow, 0.8);
+  SFX.rush(); inoSay('わしの故郷じゃ!!', 1, 1.3); G.rushT0 = now(); G.rushSaid = false; // 九十九里町は忠敬の生まれ故郷
+}
+function rushTap() {
+  if (now() > beatTime(G.rushB1)) return;
+  G.rushTaps++; G.rushRi += RUSH_STEP;
+  const f = Math.min(1, G.rushRi / RUSH_GOAL), p = { x: G.rushFrom.x + G.rushVec.x * f, y: G.rushFrom.y + G.rushVec.y * f };
+  G.rushPoles.push(p);
+  G.score += Math.round(200 * infla());
+  spawnCoins(wx(p.x), wy(p.y), 1); SFX.rushTap(G.rushTaps); G.shake = Math.max(G.shake, 0.08);
+  if (!G.rushClear && G.rushRi >= RUSH_GOAL) {
+    G.rushClear = true; const bonus = Math.round(99000 * infla()); G.score += bonus;
+    big('九十九里 制覇!!', `+${fmtRyo(bonus)}両`, NEON.pink, 1.2, -50);
+    SFX.jackpot(); spawnCoins(wx(p.x), wy(p.y), 30); G.flash = 0.5; G.flashCol = NEON.pink; G.shake = 0.5; buzz(60);
+    inoSay('はやすぎる!!', 0);
+  }
+}
+function endRush() {
+  if (!G.rushClear) { big(`${G.rushRi}里!`, `あと${RUSH_GOAL - G.rushRi}里…`, NEON.cyan, 1.0, 0, 114); inoSay('もっと速く走れい!', 3); }
+  G.phase = 'aim'; G.firstBeat = G.rushB1 + 1; G.expBeat = G.firstBeat;
+}
+function timeUp() {
+  G.time = 0; G.auto = true; G.phase = 'auto'; G.autoT = 0; G.combo = 0; G.dopa = 0; G.chain = 0;
+  big('時間切れ!!', '残りは 勘で測量!!', SHU, 1.6);
+  SFX.timeup(); G.shake = 0.5; inoSay('時間切れじゃ…', 5);
+}
+function finishRun() {
+  const avg = G.errs.reduce((a, b) => a + b, 0) / G.errs.length;
+  let tier = TIERS.findIndex(t => avg < t); if (tier < 0) tier = TIERS.length;
+  const cm = COMMENTS[tier][Math.random() < 0.5 ? 0 : 1];
+  const el = G.elapsed || now() - G.runT0, best = store.get('dpn_best', null);
+  const nb = { err: best ? Math.min(best.err, avg) : avg, ryo: best ? Math.max(best.ryo, G.score) : G.score };
+  store.set('dpn_best', nb);
+  G.res = { avg, tier, cm, el, speed: EDO_SEC / el, nbErr: !!best && avg < best.err, nbRyo: !!best && G.score > best.ryo, best: nb };
+  setState('result'); G.rolled = 0; G.stamped = 0; G.fx = []; G.dopa = 0;
+}
+function fmtKm(v) { return v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString(); }
+function fmtRyo(n) { // 大きい数は 万・億・兆 で
+  n = Math.floor(n);
+  if (n >= 1e12) return (n / 1e12).toFixed(n >= 1e14 ? 0 : 2) + '兆';
+  if (n >= 1e8) return (n / 1e8).toFixed(n >= 1e10 ? 0 : 2) + '億';
+  if (n >= 1e4) return (n / 1e4).toFixed(n >= 1e6 ? 0 : 1) + '万';
+  return n.toLocaleString();
+}
+function inoSay(s, e, dur = 0.8) { G.inoTxt = s; G.inoTxtT = G.t; G.inoE = e; G.inoET = G.t; G.inoDur = dur; }
+function inoReact(J) {
+  G.inoE = [1, 2, 3, 4][J]; G.inoET = G.t;
+  if (J === 3 || G.t - G.inoTxtT > 0.35) { const a = INO_SAY[J]; G.inoTxt = a[Math.floor(Math.random() * a.length)]; G.inoTxtT = G.t; G.inoDur = 0.8; }
+}
+
+// ================= 演出 =================
+function big(s, sub, col, life, dy = 0, ay) {
+  if (ay !== undefined) { // 上の帯：出たばかりの帯があれば その下に出す。同じ場所の古い帯は消す
+    if (G.fx.some(f => f.k === 'big' && f.ay === ay && f.t < 0.5)) ay += 62;
+    G.fx = G.fx.filter(f => !(f.k === 'big' && f.ay === ay));
+  }
+  G.fx.push({ k: 'big', s, sub, col, t: 0, life, dy, ay });
+}
+function spawnCoins(sx, sy, n) { // 小判が飛び出して 所持金に吸い込まれる
+  let cnt = 0; for (const f of G.fx) if (f.k === 'coin') cnt++;
+  n = Math.min(n, 160 - cnt);
+  for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6, sp = 120 + Math.random() * 230; G.fx.push({ k: 'coin', x0: sx, y0: sy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t: -i * 0.012, life: 0.62 + Math.random() * 0.14, spin: Math.random() * 6 }); }
+}
+function hitFx(p, J, pts) {
+  const cols = [NEON.yellow, NEON.cyan, NEON.green, SUMI], tier = tierOf(G.combo), dp = G.dopa > 0;
+  const jf = { k: 'judge', s: ['PERFECT!!', 'GREAT!', 'GOOD', 'ズレ…'][J], col: cols[J], wx: p.x, wy: p.y, t: 0, life: 0.6, J };
+  G.fx.push(jf);
+  if (pts > 0) G.fx.push({ k: 'num', s: '+' + fmtRyo(pts), wx: p.x, wy: p.y, t: 0, life: 0.7, link: jf });
+  const n = Math.round([16, 10, 5, 0][J] * (1 + tier * 0.5) * (dp ? 1.6 : 1));
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 220 * (1 + tier * 0.2);
+    const c = dp || tier >= 3 ? `hsl(${Math.random() * 360},100%,60%)` : [NEON.pink, NEON.cyan, NEON.yellow][i % 3];
+    G.fx.push({ k: 'spark', wx: p.x, wy: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, col: c, t: 0, life: 0.45 + Math.random() * 0.3, r: 2 + Math.random() * 2.5 });
+  }
+  if (J <= 1) G.fx.push({ k: 'ring', wx: p.x, wy: p.y, col: cols[J], t: 0, life: 0.45, r1: (J === 0 ? 70 : 45) * (1 + tier * 0.2) });
+  if (J === 3) { for (let i = 0; i < 7; i++) { const a = Math.random() * Math.PI * 2, d = 4 + Math.random() * 14; G.fx.push({ k: 'blot', wx: p.x, wy: p.y, ox: Math.cos(a) * d, oy: Math.sin(a) * d, r: 2 + Math.random() * 5, t: 0, life: 0.9 }); } }
+  const cl = chainLv();
+  if (G.chain >= 1 && J <= 2) { // ノンストップ中は 炎の火花が増える
+    for (let i = 0; i < 3 + cl * 4; i++) { const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2, sp = 120 + Math.random() * 200; G.fx.push({ k: 'spark', wx: p.x, wy: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, col: ['#ff5a00', '#ff9a00', '#ffd000', '#fff3a0'][i % 4], t: 0, life: 0.4 + Math.random() * 0.3, r: 2 + Math.random() * 2 }); }
+    if (cl >= 3) G.fx.push({ k: 'ring', wx: p.x, wy: p.y, col: NEON.orange, t: 0, life: 0.55, r1: 110 });
+  }
+  spawnCoins(wx(p.x), wy(p.y), [5, 3, 1, 0][J] + (J === 0 ? tier * 2 : 0) + (dp && J <= 1 ? 4 : 0) + (J <= 2 ? cl * 2 : 0));
+  G.shake = Math.max(G.shake, [0.22, 0.12, 0.05, 0.18][J] + (J <= 2 ? cl * 0.03 : 0));
+  if (J === 0) { G.flash = Math.max(G.flash, 0.16); G.flashCol = dp ? NEON.yellow : '#fff'; }
+  if (cl >= 4 && J <= 1) { G.flash = Math.max(G.flash, 0.16); G.flashCol = `hsl(${Math.random() * 360},100%,70%)`; }
+  G.lastHit = p;
+}
+
+// ================= 更新 =================
+function update(dt) {
+  schedMusic();
+  if (G.state === 'play') commitTempo();
+  if (G.hitstop > 0) { G.hitstop -= dt; return; } // ヒットストップ：一瞬だけ止める
+  G.t += dt;
+  G.shake = Math.max(0, G.shake - dt * 1.6);
+  G.flash = Math.max(0, G.flash - dt * 2.2);
+  G.comboPop = Math.max(0, (G.comboPop || 0) - dt * 5);
+  G.scoreBump = Math.max(0, (G.scoreBump || 0) - dt * 6);
+  G.chainPop = Math.max(0, (G.chainPop || 0) - dt * 5);
+  G.zp = (G.zp || 0) * Math.exp(-dt * 10);
+  for (const f of G.fx) {
+    f.t += dt;
+    if (f.k === 'coin' && !f.hit && f.t >= f.life) { f.hit = 1; G.scoreBump = 1; if (G.t - G.lastClink > 0.045) { G.lastClink = G.t; SFX.clink(); } }
+  }
+  G.fx = G.fx.filter(f => f.t < f.life);
+  if (G.state === 'play') updatePlay(dt);
+  if (G.state === 'result') {
+    const t = since(), target = t < 0.7 ? 0 : Math.min(1, (t - 0.7) / 0.5);
+    const nv = Math.floor(target * 20); if (nv > G.rolled) { G.rolled = nv; SFX.roll(); }
+    if (t > 1.25 && G.stamped < 1) { G.stamped = 1; SFX.stamp(); G.shake = 0.3; }
+    if (t > 1.5 && G.stamped < 2) { G.stamped = 2; SFX.stamp(); }
+    if (t > 1.7 && G.stamped < 3) { G.stamped = 3; if (G.res.nbErr || G.res.nbRyo) { SFX.jackpot(); G.shake = 0.4; } }
+  }
+}
+function updatePlay(dt) {
+  G.pt += dt;
+  G.shown += (G.score - G.shown) * Math.min(1, dt * 10); if (Math.abs(G.score - G.shown) < 1) G.shown = G.score;
+  const tn = now();
+  // カメラ
+  let tx, ty, tz;
+  if (G.phase === 'ship') {
+    const k = clamp((tn - G.shipT0) / Math.max(0.05, G.shipT1 - G.shipT0), 0, 1), e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    G.cam.x = G.shipFrom.x + (G.shipTo.x - G.shipFrom.x) * e; G.cam.y = G.shipFrom.y + (G.shipTo.y - G.shipFrom.y) * e; tz = 0.5;
+  } else {
+    if (G.phase === 'rush') { tx = G.rushFrom.x + G.rushVec.x * 0.5; ty = G.rushFrom.y + G.rushVec.y * 0.5; tz = 2.0; }
+    else { tx = G.pos.x + G.v.x / 2; ty = G.pos.y + G.v.y / 2; tz = ISL[G.isl].zoom; }
+    const f = 1 - Math.exp(-dt * (G.phase === 'auto' ? 14 : 10));
+    G.cam.x += (tx - G.cam.x) * f; G.cam.y += (ty - G.cam.y) * f;
+  }
+  G.cam.z += (tz - G.cam.z) * Math.min(1, dt * 5);
+  const bp = beatPos(tn);
+  switch (G.phase) {
+    case 'intro':
+      if (bp >= 0 && !G.ci0) { G.ci0 = 1; big('よーい', '', NEON.cyan, 0.45); }
+      if (bp >= 1 && !G.ci1) { G.ci1 = 1; big('測れ!!', '', NEON.pink, 0.5); G.shake = 0.3; }
+      if (bp >= 1.3) G.phase = 'aim';
+      return;
+    case 'ship': if (tn >= G.shipT1) nextIsland(); return;
+    case 'rush':
+      if (!G.rushSaid && tn - G.rushT0 > 1.3) { G.rushSaid = true; if (!G.rushClear) inoSay('連打じゃ 連打!!', 0); }
+      if (tn >= beatTime(G.rushB1)) endRush();
+      return;
+    case 'done': if (G.pt >= 0.9) finishRun(); return;
+    case 'auto':
+      G.autoT += dt;
+      while (G.autoT > 0.06 && G.phase === 'auto') { G.autoT -= 0.06; const s = Math.random() < 0.5 ? -1 : 1; record(s * (15 + Math.random() * 20), true); }
+      return;
+  }
+  // 測量中だけ時間が減る
+  G.time -= dt; G.used += dt;
+  if (G.chain > 0 && beatPos(tn - TAP_LAG) > G.expBeat + 0.5) chainBreak(); // 1回目の通過を見送ったら ノンストップ終了
+  if (G.time < 10 && Math.ceil(G.time) !== G.lastSec) { G.lastSec = Math.ceil(G.time); if (G.time > 0) SFX.tick(); }
+  if (G.time <= 0) timeUp();
+}
+
+// ================= 描画の道具 =================
+const wx = x => (x - G.cam.x) * G.cam.z * VZ + W / 2;
+const wy = y => (y - G.cam.y) * G.cam.z * VZ + L.cy;
+const rainbow = (sp = 400) => `hsl(${(G.t * sp) % 360},100%,60%)`;
+function inkText(s, x, y, size, col = INK, align = 'center', font = FD) {
+  ctx.font = `${size}px ${font}`; ctx.fillStyle = col; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+function neon(s, x, y, size, col, o = {}) {
+  ctx.save(); ctx.translate(x, y); if (o.rot) ctx.rotate(o.rot); if (o.sc) ctx.scale(o.sc, o.sc);
+  ctx.globalAlpha = o.a === undefined ? 1 : Math.max(0, o.a);
+  ctx.font = `${size}px ${FN}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = DARK; ctx.lineWidth = size * 0.3; ctx.strokeText(s, 0, 0);
+  ctx.shadowColor = col; ctx.shadowBlur = size * 0.45; ctx.strokeStyle = col; ctx.lineWidth = size * 0.13; ctx.strokeText(s, 0, 0);
+  ctx.shadowBlur = 0; ctx.fillStyle = o.fill || '#fff'; ctx.fillText(s, 0, 0);
+  ctx.restore();
+}
+function neonLine(x1, y1, x2, y2, col, w, al = 1) {
+  ctx.save(); ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.35 * al; ctx.strokeStyle = DARK; ctx.lineWidth = w * 3; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.globalAlpha = 0.8 * al; ctx.shadowColor = col; ctx.shadowBlur = 12; ctx.strokeStyle = col; ctx.lineWidth = w * 1.8; ctx.stroke();
+  ctx.globalAlpha = al; ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = w * 0.7; ctx.stroke();
+  ctx.restore();
+}
+function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function bonten(x, y, s = 1, gold = false) { // 梵天竹：竹ざおの先に紙の房
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.fillStyle = 'rgba(40,30,20,0.28)'; ctx.beginPath(); ctx.ellipse(0, 0, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = INK; ctx.lineWidth = 3.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -30); ctx.stroke();
+  ctx.strokeStyle = gold ? '#e0a800' : '#8a9a3a'; ctx.lineWidth = 1.9; ctx.stroke();
+  ctx.strokeStyle = INK; ctx.lineWidth = 0.9; for (const yy of [-9, -19]) { ctx.beginPath(); ctx.moveTo(-1.5, yy); ctx.lineTo(1.5, yy); ctx.stroke(); }
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath(); let px = i * 1.6, py = -31; ctx.moveTo(px, py);
+    for (let k = 1; k <= 4; k++) { px = i * 1.6 + i * k * 0.9 + (k % 2 ? 1.6 : -1.6); py = -31 + k * 3.4; ctx.lineTo(px, py); }
+    ctx.strokeStyle = INK; ctx.lineWidth = 2.8; ctx.stroke(); ctx.strokeStyle = gold ? GOLD : '#fffdf6'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.fillStyle = gold ? '#fff6b0' : SHU; ctx.strokeStyle = INK; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(0, -32, 2.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function drawRoses() { // 伊能図の「方位線」
+  for (const R of ROSES) {
+    const x = wx(R.x), y = wy(R.y);
+    if (x < -900 || x > W + 900 || y < -900 || y > H + 900) continue;
+    ctx.strokeStyle = 'rgba(200,50,30,0.10)'; ctx.lineWidth = 0.8; ctx.beginPath();
+    for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8; ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * 1400, y + Math.sin(a) * 1400); }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(200,50,30,0.3)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(200,50,30,0.3)'; ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x + 2.5, y); ctx.lineTo(x, y + 9); ctx.lineTo(x - 2.5, y); ctx.closePath(); ctx.fill();
+  }
+}
+function wrapLines(s, maxW, size, font) {
+  ctx.font = `${size}px ${font}`; const out = []; let cur = '';
+  for (const ch of s) { if (ch === ' ' || ch === '　') { if (ctx.measureText(cur).width > maxW * 0.6) { out.push(cur); cur = ''; continue; } } const t = cur + ch; if (ctx.measureText(t).width > maxW && cur && !'、。！？!?」）…ー'.includes(ch)) { out.push(cur); cur = ch; } else cur = t; }
+  if (cur) out.push(cur); return out.map(x => x.trim());
+}
+function speedLines(al) { // 集中線
+  ctx.save(); ctx.strokeStyle = `rgba(255,255,255,${al})`; ctx.lineWidth = 2; const r0 = Math.max(W, H) * 0.42, cx = W / 2, cy = L.cy; const rr = rng(Math.floor(G.t * 20));
+  ctx.beginPath(); for (let i = 0; i < 28; i++) { const a = i / 28 * Math.PI * 2 + rr() * 0.2, r1 = r0 + rr() * 60; ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.lineTo(cx + Math.cos(a) * (r1 + 90 + rr() * 120), cy + Math.sin(a) * (r1 + 90 + rr() * 120)); } ctx.stroke(); ctx.restore();
+}
+
+// ================= 忠敬の顔 =================
+function drawIno(x, y, r, e) { // e: 0=驚嘆 1=大喜び 2=まあまあ 3=困惑 4=怒り 5=絶望 6=ドパ脳
+  ctx.save(); ctx.translate(x, y); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const lw = Math.max(1.2, r * 0.06), SK = e === 4 ? '#f2b89a' : e === 5 ? '#e6d9c4' : '#f2d2a8';
+  // 着物
+  ctx.fillStyle = '#34405e'; ctx.strokeStyle = INK; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(-r * 1.15, r * 1.7); ctx.quadraticCurveTo(-r * 1.05, r * 0.85, -r * 0.35, r * 0.82); ctx.lineTo(0, r * 1.25); ctx.lineTo(r * 0.35, r * 0.82); ctx.quadraticCurveTo(r * 1.05, r * 0.85, r * 1.15, r * 1.7); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#f4efe4'; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.moveTo(-r * 0.32, r * 0.86); ctx.lineTo(0, r * 1.22); ctx.lineTo(r * 0.32, r * 0.86); ctx.stroke();
+  // 耳・頭
+  ctx.fillStyle = SK; ctx.strokeStyle = INK; ctx.lineWidth = lw;
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * r * 0.9, r * 0.08, r * 0.15, r * 0.24, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+  ctx.beginPath(); ctx.ellipse(0, 0, r * 0.88, r, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.save(); ctx.beginPath(); ctx.ellipse(0, 0, r * 0.88, r, 0, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = 'rgba(120,140,150,0.22)'; ctx.beginPath(); ctx.ellipse(0, -r * 0.7, r * 0.62, r * 0.42, 0, 0, Math.PI * 2); ctx.fill(); // 月代
+  ctx.fillStyle = '#b9b3a8';
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(s * r * 0.9, -r * 0.35); ctx.quadraticCurveTo(s * r * 0.62, -r * 0.1, s * r * 0.74, r * 0.3); ctx.lineTo(s * r, r * 0.3); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+  let topY = -r * 1.0;
+  if (e === 6) { // ドパ脳：頭から脳が飛び出して虹色に光る
+    ctx.save(); ctx.shadowColor = rainbow(300); ctx.shadowBlur = r * 0.8;
+    ctx.fillStyle = '#ff9ccf'; ctx.strokeStyle = INK; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.ellipse(0, -r * 0.95, r * 0.66, r * 0.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0; ctx.stroke();
+    ctx.strokeStyle = '#c2447f'; ctx.lineWidth = lw * 0.8;
+    for (const [ox, oy] of [[-0.3, -1.0], [0.05, -1.12], [0.32, -0.92]]) { ctx.beginPath(); ctx.moveTo((ox - 0.14) * r, oy * r); ctx.bezierCurveTo((ox - 0.05) * r, (oy - 0.12) * r, (ox + 0.05) * r, (oy + 0.12) * r, (ox + 0.14) * r, oy * r); ctx.stroke(); }
+    ctx.restore();
+    for (let i = 0; i < 3; i++) { const ph = (G.t * 1.6 + i / 3) % 1; ctx.save(); ctx.globalAlpha = 1 - ph; ctx.fillStyle = '#ff6fb5'; ctx.beginPath(); ctx.arc((i - 1) * r * 0.55, -r * 1.35 - ph * r * 0.9, r * 0.09, 0, Math.PI * 2); ctx.fill(); ctx.restore(); } // 脳汁
+    topY = -r * 1.32;
+  }
+  ctx.fillStyle = '#9d978c'; ctx.strokeStyle = INK; ctx.lineWidth = lw; // ちょんまげ
+  ctx.beginPath(); ctx.ellipse(0, topY, r * 0.13, r * 0.26, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-r * 0.12, topY + r * 0.12); ctx.lineTo(r * 0.12, topY + r * 0.12); ctx.stroke();
+  ctx.strokeStyle = 'rgba(42,36,32,0.45)'; ctx.lineWidth = lw * 0.6; // しわ
+  for (const yy of [-0.42, -0.32]) { ctx.beginPath(); ctx.moveTo(-r * 0.3, r * yy); ctx.quadraticCurveTo(0, r * (yy - 0.05), r * 0.3, r * yy); ctx.stroke(); }
+  ctx.strokeStyle = INK; ctx.fillStyle = INK; ctx.lineWidth = lw * 1.5;
+  const bro = (s, a, dy) => { ctx.save(); ctx.translate(s * r * 0.34, -r * 0.2 + dy); ctx.rotate(s * a); ctx.strokeStyle = '#8e887e'; ctx.lineWidth = r * 0.1; ctx.beginPath(); ctx.moveTo(-r * 0.15, 0); ctx.lineTo(r * 0.15, 0); ctx.stroke(); ctx.restore(); };
+  const ey = r * 0.02;
+  if (e === 0) {
+    bro(-1, 0.25, -r * 0.08); bro(1, -0.25, -r * 0.08);
+    for (const s of [-1, 1]) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s * r * 0.32, ey, r * 0.15, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(s * r * 0.32, ey, r * 0.08, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s * r * 0.32 + r * 0.03, ey - r * 0.03, r * 0.03, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#7a2a22'; ctx.beginPath(); ctx.ellipse(0, r * 0.5, r * 0.13, r * 0.18, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else if (e === 1) {
+    bro(-1, -0.1, -r * 0.04); bro(1, 0.1, -r * 0.04);
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * r * 0.32, ey + r * 0.05, r * 0.12, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); }
+    ctx.fillStyle = '#7a2a22'; ctx.beginPath(); ctx.moveTo(-r * 0.3, r * 0.38); ctx.quadraticCurveTo(0, r * 0.8, r * 0.3, r * 0.38); ctx.closePath(); ctx.fill(); ctx.stroke();
+  } else if (e === 2) {
+    bro(-1, 0, 0); bro(1, 0, 0);
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * r * 0.32, ey, r * 0.06, 0, Math.PI * 2); ctx.fill(); }
+    ctx.beginPath(); ctx.moveTo(-r * 0.2, r * 0.45); ctx.quadraticCurveTo(0, r * 0.58, r * 0.2, r * 0.45); ctx.stroke();
+  } else if (e === 3) {
+    bro(-1, 0.15, 0); bro(1, 0.35, -r * 0.1);
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(s * r * 0.32, ey, r * 0.06, 0, Math.PI * 2); ctx.fill(); }
+    ctx.beginPath(); ctx.moveTo(-r * 0.22, r * 0.5); for (let i = 1; i <= 4; i++) ctx.lineTo(-r * 0.22 + i * r * 0.11, r * 0.5 + (i % 2 ? -r * 0.05 : r * 0.05)); ctx.stroke();
+    ctx.fillStyle = '#7fc8ee'; ctx.strokeStyle = INK; ctx.lineWidth = lw * 0.7; ctx.beginPath(); ctx.moveTo(r * 0.7, -r * 0.45); ctx.quadraticCurveTo(r * 0.82, -r * 0.2, r * 0.7, -r * 0.14); ctx.quadraticCurveTo(r * 0.58, -r * 0.2, r * 0.7, -r * 0.45); ctx.fill(); ctx.stroke();
+  } else if (e === 4) {
+    bro(-1, -0.45, r * 0.02); bro(1, 0.45, r * 0.02);
+    for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(s * r * 0.44, ey - r * 0.02); ctx.lineTo(s * r * 0.2, ey + r * 0.04); ctx.stroke(); }
+    ctx.fillStyle = '#fff'; rrect(-r * 0.26, r * 0.4, r * 0.52, r * 0.2, r * 0.05); ctx.fill(); ctx.stroke();
+    ctx.lineWidth = lw * 0.7; ctx.beginPath(); ctx.moveTo(-r * 0.26, r * 0.5); ctx.lineTo(r * 0.26, r * 0.5); for (let i = -1; i <= 1; i++) { ctx.moveTo(i * r * 0.1, r * 0.4); ctx.lineTo(i * r * 0.1, r * 0.6); } ctx.stroke();
+    ctx.strokeStyle = SHU; ctx.lineWidth = lw * 1.3; const vx = r * 0.55, vy = -r * 0.62; // 怒りマーク
+    for (const [a, b] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { ctx.beginPath(); ctx.moveTo(vx + a * r * 0.05, vy + b * r * 0.16); ctx.quadraticCurveTo(vx + a * r * 0.05, vy + b * r * 0.05, vx + a * r * 0.16, vy + b * r * 0.05); ctx.stroke(); }
+  } else if (e === 5) {
+    bro(-1, 0.4, -r * 0.05); bro(1, -0.4, -r * 0.05);
+    for (const s of [-1, 1]) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s * r * 0.32, ey, r * 0.14, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    ctx.fillStyle = '#3a1512'; ctx.beginPath(); ctx.ellipse(0, r * 0.55, r * 0.22, r * 0.22, 0, Math.PI, 0, true); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(70,110,200,0.6)'; ctx.lineWidth = lw * 0.8;
+    for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(i * r * 0.1, -r * 0.62); ctx.lineTo(i * r * 0.1, -r * 0.3); ctx.stroke(); }
+  } else { // 6：目がぐるぐる、口は全開
+    bro(-1, 0.3, -r * 0.1); bro(1, -0.3, -r * 0.1);
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = '#fff'; ctx.lineWidth = lw * 1.2; ctx.beginPath(); ctx.arc(s * r * 0.32, ey, r * 0.16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = lw * 0.9; ctx.beginPath(); for (let i = 0; i < 26; i++) { const a = i * 0.55 + G.t * 8 * s, d = r * 0.14 * i / 26, px = s * r * 0.32 + Math.cos(a) * d, py = ey + Math.sin(a) * d; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
+    }
+    ctx.lineWidth = lw * 1.2; ctx.fillStyle = '#7a2a22'; ctx.beginPath(); ctx.moveTo(-r * 0.32, r * 0.36); ctx.quadraticCurveTo(0, r * 0.92, r * 0.32, r * 0.36); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ff7a9a'; ctx.beginPath(); ctx.ellipse(0, r * 0.6, r * 0.12, r * 0.07, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  if (e <= 1 || e === 6) { ctx.fillStyle = 'rgba(255,110,110,0.35)'; for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(s * r * 0.52, r * 0.3, r * 0.14, r * 0.08, 0, 0, Math.PI * 2); ctx.fill(); } }
+  ctx.restore();
+  if (e === 0) { for (let i = 0; i < 4; i++) { const a = G.t * 2 + i * 1.57, d = r * 1.35; star(x + Math.cos(a) * d, y - r * 0.2 + Math.sin(a) * d * 0.7, r * 0.14, NEON.yellow); } }
+}
+function star(x, y, s, col) {
+  ctx.save(); ctx.translate(x, y); ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8;
+  ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, d = i % 2 ? s * 0.35 : s; ctx.lineTo(Math.cos(a) * d, Math.sin(a) * d); } ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function bubble(x, y, w, s, size, tailX, tailY) {
+  const lines = wrapLines(s, w - 24, size, FD), h = lines.length * size * 1.35 + 18;
+  ctx.save(); ctx.fillStyle = '#fffdf6'; ctx.strokeStyle = INK; ctx.lineWidth = 2;
+  rrect(x, y - h / 2, w, h, 12); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 1, y - 8); ctx.lineTo(tailX, tailY); ctx.lineTo(x + 1, y + 6); ctx.fillStyle = '#fffdf6'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(tailX, tailY); ctx.lineTo(x, y + 6); ctx.stroke();
+  lines.forEach((ln, i) => inkText(ln, x + 12, y - h / 2 + 9 + size * 0.68 + i * size * 1.35, size, INK, 'left'));
+  ctx.restore();
+}
+function drawCoin(x, y, s, spin) { // 小判
+  ctx.save(); ctx.translate(x, y); ctx.scale(Math.max(0.25, Math.abs(Math.cos(spin))), 1);
+  ctx.fillStyle = '#f5c518'; ctx.strokeStyle = '#8a5a00'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.ellipse(0, 0, 5 * s, 7.5 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(138,90,0,0.6)'; ctx.beginPath(); for (let i = -1; i <= 1; i++) { ctx.moveTo(-2.6 * s, i * 2.6 * s); ctx.lineTo(2.6 * s, i * 2.6 * s); } ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.ellipse(-1.6 * s, -3 * s, 1.1 * s, 2 * s, -0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// ================= 地図（タイトル・結果で使う） =================
+function fitBox(pts, bx, by, bw, bh) {
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const z = Math.min(bw / (x1 - x0), bh / (y1 - y0));
+  return { z, ox: bx + bw / 2 - (x0 + x1) / 2 * z, oy: by + bh / 2 - (y0 + y1) / 2 * z };
+}
+function drawTrueJapan(F, fill, stroke, lw) {
+  for (const I of ISL) {
+    ctx.beginPath(); I.P.forEach((p, i) => { const x = F.ox + p.x * F.z, y = F.oy + p.y * F.z; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.lineJoin = 'round'; ctx.stroke();
+  }
+}
+
+// ================= 描画：タイトル =================
+function titleBtn() { return { x: W / 2 - 110, y: H * 0.86 - 30, w: 220, h: 60 }; }
+function drawTitle() {
+  VZ = 1;
+  const F = fitBox(ISL.flatMap(I => I.P), 30, 40, W - 60, H * 0.5);
+  G.cam = { x: (W / 2 - F.ox) / F.z, y: (L.cy - F.oy) / F.z, z: F.z };
+  drawRoses();
+  drawTrueJapan(F, 'rgba(60,50,40,0.08)', 'rgba(42,36,32,0.55)', 1.4);
+  const tt = Math.abs(G.t * 0.35) % 1, all = ISL.flatMap(I => I.P.concat([I.P[0]]).map(p => ({ x: F.ox + p.x * F.z, y: F.oy + p.y * F.z })));
+  ctx.strokeStyle = SHU; ctx.lineWidth = 2; ctx.beginPath(); const nshow = Math.floor(tt * all.length);
+  for (let i = 0; i <= nshow; i++) { const p = all[i]; i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); } ctx.stroke();
+  const hp = all[Math.min(nshow, all.length - 1)]; bonten(hp.x, hp.y, 0.7);
+  const bob = Math.sin(G.t * 3) * 0.03;
+  neon('ドパ脳忠敬', W / 2, H * 0.27, 54, NEON.pink, { rot: -0.06, sc: 1 + bob });
+  inkText('60秒で 日本を 測れ!!', W / 2, H * 0.27 + 50, 22, INK);
+  drawIno(62, H * 0.6, 30, 2);
+  bubble(108, H * 0.585, W - 122, 'わしの17年、60秒で超えてみよ!!', 14, 92, H * 0.6);
+  // 遊び方（ビートで線がゆれる見本）
+  const hy = H * 0.715, px = 64, py = hy + 20, tgx = px + 70, tgy = py - 24;
+  bonten(px, py, 0.8); bonten(tgx, tgy, 0.8);
+  const ph = G.t / 0.5, k = Math.floor(ph), u = ph - k, off = 0.5 * (1 - Math.abs(1 - 2 * u)) * (k & 1 ? -1 : 1);
+  const ga = Math.atan2(tgy - py, tgx - px), sa = ga + off, hit = Math.abs(off) < 0.07;
+  ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(42,36,32,0.4)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + Math.cos(ga) * 95, py + Math.sin(ga) * 95); ctx.stroke(); ctx.setLineDash([]);
+  neonLine(px, py, px + Math.cos(sa) * 95, py + Math.sin(sa) * 95, NEON.cyan, 2);
+  if (hit) neon('タップ!', tgx + 8, tgy - 30, 13, NEON.pink);
+  inkText('ビートに合わせて', 184, hy - 8, 15, INK, 'left'); inkText('線が梵天竹に重なったら', 184, hy + 12, 14, INK, 'left');
+  inkText('タップ！', 184, hy + 32, 15, INK, 'left'); inkText('ずれた分だけ 日本がゆがむ', 184, hy + 50, 11, SUMI, 'left');
+  const b = titleBtn(), pul = 1 + Math.sin(G.t * 5) * 0.03;
+  ctx.save(); ctx.translate(W / 2, b.y + b.h / 2); ctx.scale(pul, pul);
+  ctx.fillStyle = DARK; ctx.shadowColor = NEON.pink; ctx.shadowBlur = 18; rrect(-b.w / 2, -b.h / 2, b.w, b.h, 30); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = NEON.pink; ctx.lineWidth = 2.5; ctx.stroke(); ctx.restore();
+  neon('測量開始', W / 2, b.y + b.h / 2 + 1, 26, NEON.cyan, { sc: pul });
+  const best = store.get('dpn_best', null);
+  if (best) inkText(`自己ベスト　誤差 ${fmtKm(best.err)}km・所持金 ${fmtRyo(best.ryo)}両`, W / 2, b.y + b.h + 22, 12, SUMI);
+  inkText('N.K. Works', W / 2, H - 14, 11, USU);
+}
+
+// ================= 描画：プレイ =================
+function drawWorld() {
+  drawRoses();
+  const z = G.cam.z * VZ;
+  for (let i = 0; i < G.my.length; i++) { // 自分の測量（朱の線）
+    const P = G.my[i], closed = i < G.isl || (G.phase === 'done' || G.phase === 'ship') && i === G.isl;
+    if (closed) { ctx.beginPath(); P.forEach((p, k) => k ? ctx.lineTo(wx(p.x), wy(p.y)) : ctx.moveTo(wx(p.x), wy(p.y))); ctx.closePath(); ctx.fillStyle = 'rgba(70,58,45,0.13)'; ctx.fill(); }
+    ctx.beginPath(); P.forEach((p, k) => k ? ctx.lineTo(wx(p.x), wy(p.y)) : ctx.moveTo(wx(p.x), wy(p.y)));
+    ctx.strokeStyle = SHU; ctx.lineWidth = 2.6; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+    if (i === G.isl && G.chain > 0 && P.length > 1) drawChainTrail(P);
+    if (closed && P.length > 1) {
+      const a = P[0], b = P[P.length - 1]; ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(200,50,30,0.6)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(wx(a.x), wy(a.y)); ctx.lineTo(wx(b.x), wy(b.y)); ctx.stroke(); ctx.setLineDash([]);
+    }
+    const I = ISL[i];
+    P.forEach((p, k) => {
+      const x = wx(p.x), y = wy(p.y); if (x < -40 || x > W + 40 || y < -40 || y > H + 40) return;
+      ctx.fillStyle = '#fffdf6'; ctx.strokeStyle = SHU; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (k < I.P.length && z > 0.4) inkText(I.P[k].n, x + 6, y - 8, 10, 'rgba(42,36,32,0.75)', 'left');
+    });
+  }
+  if (G.rushPoles.length || G.phase === 'rush') { // 九十九里浜
+    const a = G.rushFrom, b = { x: a.x + G.rushVec.x, y: a.y + G.rushVec.y };
+    if (G.phase === 'rush') {
+      ctx.strokeStyle = 'rgba(214,180,110,0.6)'; ctx.lineWidth = 14; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(wx(a.x), wy(a.y)); ctx.lineTo(wx(b.x), wy(b.y)); ctx.stroke();
+      inkText('九十九里浜', wx((a.x + b.x) / 2) + 22, wy((a.y + b.y) / 2) + 6, 15, INK, 'left');
+      inkText('（忠敬の故郷）', wx((a.x + b.x) / 2) + 22, wy((a.y + b.y) / 2) + 26, 11, SUMI, 'left');
+      for (const p of G.rushPoles) bonten(wx(p.x), wy(p.y), 0.5);
+    } else { ctx.fillStyle = SHU; for (const p of G.rushPoles) { ctx.beginPath(); ctx.arc(wx(p.x), wy(p.y), 1.4, 0, Math.PI * 2); ctx.fill(); } }
+  }
+  if (G.phase === 'ship') {
+    const a = G.shipFrom, b = G.shipTo, k = clamp((now() - G.shipT0) / Math.max(0.05, G.shipT1 - G.shipT0), 0, 1);
+    ctx.setLineDash([2, 5]); ctx.strokeStyle = 'rgba(42,36,32,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(wx(a.x), wy(a.y)); ctx.lineTo(wx(b.x), wy(b.y)); ctx.stroke(); ctx.setLineDash([]);
+    drawShip(wx(a.x + (b.x - a.x) * k), wy(a.y + (b.y - a.y) * k));
+    return;
+  }
+  if (G.phase === 'done' || G.phase === 'auto' || G.phase === 'rush') bonten(wx(G.pos.x), wy(G.pos.y), 1);
+}
+function drawAim() { // 次の目標と、ゆれる線（演出より上に描いて いつでも見えるようにする）
+  if (G.phase !== 'aim' && G.phase !== 'intro') return;
+  const z = G.cam.z * VZ, tn = now(), px = wx(G.pos.x), py = wy(G.pos.y), tx = wx(G.pos.x + G.v.x), ty = wy(G.pos.y + G.v.y);
+  const Lr = Math.max(G.len * z + 46, 130), pulse = beatPulse();
+  const kbN = Math.round(beatPos(tn - TAP_LAG)), live = G.phase === 'aim' && kbN >= G.firstBeat && kbN > G.usedBeat;
+  const off = lineOffset(tn), near = live ? Math.max(0, 1 - Math.abs(off) / 10) : 0;
+  const tier = tierOf(G.combo), dp = G.dopa > 0, gold = G.gold;
+  const lineCol = dp || tier >= 3 ? rainbow() : [NEON.cyan, NEON.pink, NEON.yellow][tier];
+  ctx.strokeStyle = 'rgba(42,36,32,0.18)'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.arc(px, py, Lr, G.th - SWEEP * Math.PI / 180, G.th + SWEEP * Math.PI / 180); ctx.stroke();
+  ctx.strokeStyle = 'rgba(42,36,32,0.45)'; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + Math.cos(G.th) * Lr, py + Math.sin(G.th) * Lr); ctx.stroke(); ctx.setLineDash([]);
+  const ringCol = gold ? GOLD : NEON.pink, pr = 13 + pulse * 6 + near * 5;
+  ctx.save(); ctx.shadowColor = ringCol; ctx.shadowBlur = 10 + near * 14 + (gold ? 12 : 0); ctx.strokeStyle = ringCol; ctx.lineWidth = gold ? 3.5 : 2.5; ctx.beginPath(); ctx.arc(tx, ty, pr, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  ctx.strokeStyle = DARK; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(tx, ty, pr + 2, 0, Math.PI * 2); ctx.stroke();
+  if (live && kbN === G.expBeat && G.chain >= 1) { // ノンストップを続けるチャンス：炎の輪
+    const cc = chainLv() >= 3 ? rainbow(400) : NEON.orange;
+    ctx.save(); ctx.strokeStyle = cc; ctx.shadowColor = cc; ctx.shadowBlur = 12; ctx.lineWidth = 2.2; ctx.setLineDash([5, 4]); ctx.lineDashOffset = -G.t * 40; ctx.beginPath(); ctx.arc(tx, ty, pr + 8 + pulse * 3, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  }
+  if (gold) for (let i = 0; i < 5; i++) { const a = G.t * 3 + i * 1.2566; star(tx + Math.cos(a) * (pr + 10), ty - 14 + Math.sin(a) * (pr + 10), 4, GOLD); }
+  bonten(tx, ty, 0.9, gold);
+  const label = (gold ? '激アツ ' : '') + G.tname, right = tx > W - 120, lx = tx + (right ? -16 : 16);
+  ctx.font = `13px ${FD}`; const tw = ctx.measureText(label).width + 14, ax = right ? lx - tw : lx;
+  ctx.fillStyle = gold ? (Math.floor(G.t * 8) % 2 ? '#b8860b' : '#e0a800') : 'rgba(29,21,48,0.82)'; rrect(ax, ty - 44, tw, 22, 11); ctx.fill();
+  inkText(label, ax + tw / 2, ty - 33, 13, '#fff');
+  bonten(px, py, 1);
+  if (G.phase === 'aim') { const a = G.th + off * Math.PI / 180; neonLine(px, py, px + Math.cos(a) * Lr, py + Math.sin(a) * Lr, lineCol, 2.4 + tier * 0.7 + (dp ? 1 : 0), live ? 1 : 0.28); }
+  if (G.hitstop > 0 && G.lastHit) { ctx.save(); ctx.fillStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 20; ctx.beginPath(); ctx.arc(wx(G.lastHit.x), wy(G.lastHit.y), 20, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+}
+function drawChainTrail(P) { // ノンストップで引いた線は 光る
+  const n = Math.min(G.chain, P.length - 1), cl = chainLv(), col = cl >= 3 ? rainbow(300) : cl >= 2 ? NEON.yellow : NEON.orange, s0 = P.length - 1 - n;
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
+  for (let k = s0; k < P.length; k++) { const q = P[k]; k === s0 ? ctx.moveTo(wx(q.x), wy(q.y)) : ctx.lineTo(wx(q.x), wy(q.y)); }
+  ctx.shadowColor = col; ctx.shadowBlur = 10 + cl * 4; ctx.strokeStyle = col; ctx.globalAlpha = 0.85; ctx.lineWidth = 3 + cl; ctx.stroke();
+  ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke(); ctx.restore();
+}
+function flames(pulse, cl) { // 画面の左右のふちが燃える
+  ctx.save();
+  for (const side of [0, 1]) {
+    const g = ctx.createLinearGradient(side ? W : 0, 0, side ? W - 34 : 34, 0);
+    g.addColorStop(0, `rgba(255,${cl >= 4 ? 60 : 110},0,${0.3 + pulse * 0.3})`); g.addColorStop(1, 'rgba(255,160,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(side ? W - 34 : 0, 52, 34, H - 100);
+    ctx.fillStyle = `rgba(255,${140 + (Math.random() * 60 | 0)},0,0.5)`; ctx.beginPath();
+    for (let y = 60; y < H - 60; y += 22) { const h = 10 + Math.sin(G.t * 12 + y * 0.3) * 6 + pulse * 10; if (side) { ctx.moveTo(W, y); ctx.lineTo(W - h, y + 11); ctx.lineTo(W, y + 22); } else { ctx.moveTo(0, y); ctx.lineTo(h, y + 11); ctx.lineTo(0, y + 22); } }
+    ctx.fill();
+  }
+  ctx.restore();
+}
+function drawShip(x, y) {
+  ctx.save(); ctx.translate(x, y + Math.sin(G.t * 8) * 1.5);
+  ctx.fillStyle = '#6b4a2b'; ctx.strokeStyle = INK; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(16, 0); ctx.lineTo(11, 7); ctx.lineTo(-11, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -24); ctx.stroke();
+  ctx.fillStyle = '#fffdf6'; ctx.beginPath(); ctx.rect(-10, -22, 20, 17); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = SUMI; ctx.lineWidth = 0.8; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * 6, -22); ctx.lineTo(i * 6, -5); ctx.stroke(); }
+  ctx.restore();
+}
+function drawWorldFx() {
+  for (const f of G.fx) {
+    const k = f.t / f.life;
+    if (f.k === 'spark') { const x = wx(f.wx) + f.vx * f.t * (1 - k * 0.5), y = wy(f.wy) + f.vy * f.t * (1 - k * 0.5) + 60 * f.t * f.t; ctx.save(); ctx.globalAlpha = 1 - k; ctx.fillStyle = f.col; ctx.shadowColor = f.col; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(x, y, f.r * (1 - k * 0.5), 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+    else if (f.k === 'ring') { ctx.save(); ctx.globalAlpha = 1 - k; ctx.strokeStyle = f.col; ctx.shadowColor = f.col; ctx.shadowBlur = 12; ctx.lineWidth = 4 * (1 - k) + 1; ctx.beginPath(); ctx.arc(wx(f.wx), wy(f.wy), 8 + (f.r1 - 8) * (1 - Math.pow(1 - k, 3)), 0, Math.PI * 2); ctx.stroke(); ctx.restore(); }
+    else if (f.k === 'blot') { ctx.save(); ctx.globalAlpha = 0.7 * (1 - k); ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(wx(f.wx) + f.ox * (1 + k), wy(f.wy) + f.oy * (1 + k), f.r, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+  }
+}
+function scorePos() { return { x: W - 64, y: 32 }; }
+const JHW = [105, 75, 50, 50]; // 判定の文字の半分の幅（だいたい）
+function aimTarget() { return (G.phase === 'aim' || G.phase === 'intro') && G.v ? { x: wx(G.pos.x + G.v.x), y: wy(G.pos.y + G.v.y) } : null; }
+function spotAway(f, dist, hw, hh) { // 文字は 次の目標から離れた向きに出す（向きは最初に1回だけ決める）
+  const ax = wx(f.wx), ay = wy(f.wy), place = d => ({ x: clamp(ax + d[0] * dist, hw + 4, W - hw - 4), y: clamp(ay + d[1] * dist, L.hudH + 26 + hh, H - 112 - hh) });
+  if (!f.dir) {
+    const T = aimTarget(), c = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+    if (T) { const ex = ax - T.x, ey = ay - T.y, d = Math.hypot(ex, ey); if (d > 1) c.unshift([ex / d, ey / d]); }
+    let bs = -1; f.dir = c[0];
+    for (const d of c) { const q = place(d), sc = T ? Math.hypot(T.x - clamp(T.x, q.x - hw, q.x + hw), T.y - clamp(T.y, q.y - hh, q.y + hh)) : 99; if (sc > bs) { bs = sc; f.dir = d; } if (sc > 40) break; }
+  }
+  return place(f.dir);
+}
+function drawScreenFx() {
+  const sp = scorePos();
+  for (const f of G.fx) {
+    const k = f.t / f.life;
+    if (f.k === 'judge') {
+      const sc = k < 0.15 ? 0.5 + k / 0.15 * 0.8 : 1.3 - Math.min(0.3, (k - 0.15) * 1.5), p = spotAway(f, 62, JHW[f.J], 18), x = p.x, y = p.y - k * 18;
+      if (f.J === 3) inkText(f.s, x, y, 22, `rgba(80,70,60,${1 - k})`);
+      else neon(f.s, x, y, f.J === 0 ? 28 : 22, f.J === 0 && (G.dopa > 0 || tierOf(G.combo) >= 3) ? rainbow(500) : f.col, { sc, a: 1 - Math.max(0, k - 0.6) / 0.4, rot: -0.05 });
+    } else if (f.k === 'num') {
+      const j = f.link, p = spotAway(j, 62, JHW[j.J], 18);
+      neon(f.s, p.x, p.y + 28 - k * 20, 15, NEON.yellow, { a: 1 - Math.max(0, k - 0.6) / 0.4 });
+    } else if (f.k === 'coin') {
+      if (f.t < 0) continue;
+      const T1 = 0.26, t1 = Math.min(f.t, T1), bx = f.x0 + f.vx * t1, by = f.y0 + f.vy * t1 + 500 * t1 * t1;
+      let x = bx, y = by, s = 1;
+      if (f.t > T1) { const q = Math.min(1, (f.t - T1) / (f.life - T1)), e = q * q; x = bx + (sp.x - bx) * e; y = by + (sp.y - by) * e; s = 1 - q * 0.4; }
+      drawCoin(x, y, s, f.spin + f.t * 14);
+    } else if (f.k === 'cup') { // ノンストップの段階アップ（右下から飛びこむ）
+      const inT = Math.min(1, f.t / 0.15), outK = clamp((f.t - f.life + 0.2) / 0.2, 0, 1), x = W - 16 + (1 - inT) * 160 + outK * 40, y = H - 160;
+      neon(f.s, x, y, 34, f.cl >= 3 ? rainbow(500) : f.cl >= 2 ? NEON.yellow : NEON.orange, { align: 'right', rot: -0.1, a: 1 - outK, sc: 1 + (1 - inT) * 0.4 });
+      inkText(f.sub, x - 4, y + 27, 12, `rgba(200,50,30,${1 - outK})`, 'right');
+    } else if (f.k === 'ember') {
+      if (f.t < 0) continue;
+      const x = f.x + f.vx * f.t, y = f.y + f.vy * f.t + 160 * f.t * f.t;
+      ctx.save(); ctx.globalAlpha = 1 - k; ctx.fillStyle = f.c; ctx.shadowColor = f.c; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(x, y, 2.6 * (1 - k * 0.5), 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    } else if (f.k === 'cbrk') { // ノンストップが途切れた
+      const y = L.gY - 56 + k * 30; ctx.save(); ctx.globalAlpha = 1 - k; inkText(f.s, W - 14, y, 20, SUMI, 'right', FN); inkText('テンポ切れ…', W - 14, y - 20, 11, SUMI, 'right'); ctx.restore();
+    } else if (f.k === 'brk') { // コンボが割れる
+      const y = 72 + k * 60; ctx.save(); ctx.globalAlpha = 1 - k; ctx.translate(W / 2, y); ctx.rotate(k * 0.5); inkText(f.s, 0, 0, 22, SUMI, 'center', FN); ctx.restore();
+    } else if (f.k === 'big') { // 帯（上の帯は細めにして 目標にかぶりにくく）
+      const top = f.ay !== undefined, inT = Math.min(1, f.t / 0.16), outK = clamp((f.t - f.life + 0.22) / 0.22, 0, 1);
+      const sc = top ? 1.6 - 0.6 * (1 - Math.pow(1 - inT, 3)) : 2.2 - 1.2 * (1 - Math.pow(1 - inT, 3)), y = top ? f.ay : L.cy + (f.dy || 0);
+      const col = f.col === GOLD && Math.floor(G.t * 10) % 2 ? NEON.pink : f.col;
+      const hh = top ? (f.sub ? 54 : 40) : (f.sub ? 70 : 56), y0 = y - (top ? 22 : 32), fs = top ? (f.s.length > 7 ? 21 : 25) : (f.s.length > 7 ? 28 : 34);
+      ctx.save(); ctx.globalAlpha = (1 - outK) * (top ? 0.78 : 0.85); ctx.fillStyle = DARK; ctx.fillRect(0, y0, W, hh); ctx.restore();
+      ctx.save(); ctx.globalAlpha = 1 - outK; ctx.fillStyle = col; ctx.fillRect(0, y0, W, 2); ctx.fillRect(0, y0 + hh - 2, W, 2); ctx.restore();
+      neon(f.s, W / 2 + outK * -80, y0 + (top ? 19 : 28), fs, col, { sc, a: 1 - outK, rot: -0.03 });
+      if (f.sub) inkText(f.sub, W / 2 + outK * -80, y0 + hh - (top ? 12 : 16), top ? 12 : 14, `rgba(255,255,255,${1 - outK})`);
+    }
+  }
+}
+function drawHUD() {
+  const pulse = beatPulse(), tier = tierOf(G.combo), dp = G.dopa > 0;
+  ctx.fillStyle = 'rgba(29,21,48,0.9)'; ctx.fillRect(0, 0, W, 50);
+  ctx.save(); ctx.globalAlpha = 0.55 + pulse * 0.45; ctx.fillStyle = dp || tier >= 3 ? rainbow(300) : NEON.pink; ctx.fillRect(0, 50, W, 2 + pulse * 2); ctx.restore();
+  const low = G.time < 10 && !G.auto, tcol = low ? '#ff3b3b' : NEON.cyan, tp = low ? 1 + (1 - (G.time % 1)) * 0.15 : 1;
+  inkText('のこり', 12, 14, 11, '#cfc6e8', 'left');
+  neon(G.time.toFixed(1), 12, 34, 22, tcol, { align: 'left', sc: tp });
+  inkText('所持金', W - 12, 14, 11, '#cfc6e8', 'right');
+  neon(fmtRyo(G.shown) + '両', W - 12, 34, 20, NEON.yellow, { align: 'right', sc: 1 + G.scoreBump * 0.12 });
+  const I = ISL[Math.min(G.isl, ISL.length - 1)];
+  inkText(I.name, W / 2 - 8, 16, 15, '#fff');
+  inkText(`${Math.min(G.k, NSEG)} / ${NSEG}`, W / 2 - 8, 36, 12, '#cfc6e8', 'center', FN);
+  if (G.combo >= 2) {
+    neon(`${G.combo} COMBO`, W / 2, 72, 20 + G.comboPop * 6 + tier * 2, dp || tier >= 3 ? rainbow() : [NEON.pink, NEON.pink, NEON.yellow][tier], { rot: -0.03, sc: 1 + pulse * 0.05 });
+  }
+  if (G.phase === 'rush') { // ラッシュの表示
+    const rem = clamp((beatTime(G.rushB1) - now()) / (RUSH_BEATS * G.bLen), 0, 1), rk = Math.min(1, G.rushRi / RUSH_GOAL);
+    neon(`${G.rushRi}里`, W / 2, 130, 42, G.rushClear ? rainbow() : NEON.yellow, { sc: 1 + pulse * 0.08 });
+    inkText(`/ ${RUSH_GOAL}里`, W / 2 + 70, 142, 14, INK, 'left');
+    ctx.fillStyle = 'rgba(29,21,48,0.8)'; rrect(40, 162, W - 80, 12, 6); ctx.fill();
+    ctx.fillStyle = G.rushClear ? NEON.green : NEON.pink; rrect(40, 162, Math.max(12, (W - 80) * rk), 12, 6); ctx.fill();
+    ctx.fillStyle = 'rgba(29,21,48,0.5)'; ctx.fillRect(40, 180, (W - 80) * rem, 4);
+    neon('連打!! 連打!!', W / 2, L.cy + 120, 26, NEON.cyan, { sc: 1 + pulse * 0.15, rot: Math.sin(G.t * 20) * 0.03 });
+  }
+  // 下：ドパ脳ゲージ
+  const gy = L.gY, gx = 64, gw = W - gx - 128;
+  ctx.fillStyle = 'rgba(29,21,48,0.9)'; rrect(8, gy - 18, W - 16, 36, 18); ctx.fill();
+  ctx.save(); ctx.globalAlpha = 0.3 + pulse * 0.5; ctx.strokeStyle = dp ? rainbow(300) : NEON.cyan; ctx.lineWidth = 1.5; rrect(8, gy - 18, W - 16, 36, 18); ctx.stroke(); ctx.restore();
+  inkText(dp ? 'ドパ脳!!' : 'ドパ脳', 18, gy, 12, dp ? NEON.yellow : '#fff', 'left');
+  ctx.fillStyle = 'rgba(255,255,255,0.15)'; rrect(gx, gy - 6, gw, 12, 6); ctx.fill();
+  const fw = gw * G.gauge / 100 * (dp ? G.dopa / DOPA_N : 1);
+  if (fw > 1) {
+    ctx.save(); const g = ctx.createLinearGradient(gx, 0, gx + gw, 0);
+    if (dp) { const h = (G.t * 300) % 360; for (let i = 0; i <= 4; i++) g.addColorStop(i / 4, `hsl(${(h + i * 72) % 360},100%,60%)`); }
+    else { g.addColorStop(0, NEON.pink); g.addColorStop(1, NEON.yellow); }
+    ctx.fillStyle = g; ctx.shadowColor = NEON.pink; ctx.shadowBlur = 8; rrect(gx, gy - 6, Math.max(12, fw), 12, 6); ctx.fill(); ctx.restore();
+  }
+  inkText(`${Math.round(G.dist).toLocaleString()}km`, W - 44, gy, 12, '#fff', 'right', FN);
+  if (G.chain >= 2 && G.phase !== 'auto') { // ノンストップの表示
+    const cl = chainLv(), col = cl >= 3 ? rainbow(300) : cl >= 2 ? NEON.yellow : NEON.orange, bx = W - 14, by = L.gY - 44;
+    inkText('ノンストップ', bx, by - 20, 11, SHU, 'right');
+    neon(`${G.chain}連`, bx - (cl ? 42 : 0), by, 22 + G.chainPop * 8, col, { align: 'right', sc: 1 + pulse * 0.06 });
+    if (cl) neon(`×${CHAIN_MUL[cl]}`, bx, by + 2, 14, NEON.orange, { align: 'right' });
+  }
+  drawMute(L.mute.x, L.mute.y);
+  // 忠敬の実況
+  const x = L.ino.x, y = L.ino.y, e = G.t - G.inoET < Math.max(0.6, (G.inoDur || 0.8) - 0.2) ? G.inoE : dp ? 6 : tier >= 2 ? 1 : 2;
+  const sc = 1 + pulse * 0.06 + Math.max(0, 0.2 - (G.t - G.inoET)) * 0.8;
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); drawIno(0, 0, 18, e); ctx.restore();
+  if (G.inoTxt && G.t - G.inoTxtT < (G.inoDur || 0.8)) { ctx.font = `13px ${FD}`; const w = Math.min(230, ctx.measureText(G.inoTxt).width + 26); bubble(x + 30, y - 6, w, G.inoTxt, 13, x + 17, y - 2); }
+}
+function drawMute(mx, my) {
+  ctx.save(); ctx.translate(mx, my); ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fff'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-7, -3); ctx.lineTo(-3, -3); ctx.lineTo(2, -7); ctx.lineTo(2, 7); ctx.lineTo(-3, 3); ctx.lineTo(-7, 3); ctx.closePath(); ctx.fill();
+  if (muted) { ctx.beginPath(); ctx.moveTo(5, -4); ctx.lineTo(11, 4); ctx.moveTo(11, -4); ctx.lineTo(5, 4); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.arc(3, 0, 5, -0.8, 0.8); ctx.stroke(); ctx.beginPath(); ctx.arc(3, 0, 9, -0.8, 0.8); ctx.stroke(); }
+  ctx.restore();
+}
+function drawPlay() {
+  const tier = tierOf(G.combo), dp = G.dopa > 0, pulse = beatPulse(), cl = chainLv();
+  const vz = 1 + G.zp + (cl >= 2 && G.phase === 'aim' ? pulse * 0.008 * cl : 0); // ノンストップ中はビートに合わせて画面が寄る
+  VZ = vz;
+  if (tier >= 2 || dp) { const g = ctx.createRadialGradient(W / 2, L.cy, 40, W / 2, L.cy, H * 0.7); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, dp ? `hsla(${(G.t * 300) % 360},100%,60%,${0.1 + pulse * 0.12})` : `rgba(255,43,214,${0.05 + pulse * 0.08})`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  drawWorld(); drawWorldFx();
+  VZ = 1;
+  if (G.phase === 'ship' || G.phase === 'rush') speedLines(0.5);
+  else if (dp || tier >= 3 || cl >= 2) speedLines(Math.max(dp || tier >= 3 ? 0.22 : 0, 0.08 + cl * 0.06));
+  if (cl >= 3 && G.phase === 'aim') flames(pulse, cl);
+  if (dp) {
+    const h = (G.t * 300) % 360; ctx.save(); ctx.fillStyle = `hsla(${h},100%,60%,0.06)`; ctx.fillRect(0, 0, W, H);
+    ctx.shadowColor = `hsl(${h},100%,60%)`; ctx.shadowBlur = 30; ctx.strokeStyle = `hsl(${h},100%,60%)`; ctx.lineWidth = 6 + pulse * 4; ctx.strokeRect(-2, -2, W + 4, H + 4); ctx.restore();
+  }
+  drawScreenFx();
+  if (G.flash > 0) { ctx.save(); ctx.globalAlpha = G.flash * 0.6; ctx.fillStyle = G.flashCol; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+  VZ = vz; drawAim(); VZ = 1; // 目標はいちばん上（HUDの下）
+  drawHUD();
+}
+
+// ================= 描画：結果 =================
+function resultBtns() { const y = H - 84; return { retry: { x: 18, y, w: 154, h: 50 }, share: { x: W - 172, y, w: 154, h: 50 }, menu: { x: W / 2 - 60, y: H - 28, w: 120, h: 26 } }; }
+function drawResult() {
+  VZ = 1;
+  const t = since(), R = G.res, top = 48, mh = H * 0.36;
+  inkText('あなたの 日本地図', W / 2, 26, 18, INK);
+  const allTrue = ISL.flatMap(I => I.P), allMy = G.my.flat();
+  const F = fitBox(allTrue.concat(allMy), 16, top, W - 32, mh);
+  G.cam = { x: (W / 2 - F.ox) / F.z, y: (L.cy - F.oy) / F.z, z: F.z };
+  ctx.save(); ctx.globalAlpha = 0.5; drawRoses(); ctx.restore();
+  drawTrueJapan(F, 'rgba(60,50,40,0.12)', 'rgba(42,36,32,0.5)', 1.2);
+  const k = Math.min(1, t / 0.7), total = allMy.length; let drawn = 0;
+  ctx.save(); ctx.shadowColor = NEON.pink; ctx.shadowBlur = 6;
+  for (const P of G.my) {
+    ctx.beginPath(); for (let i = 0; i < P.length && drawn < total * k; i++, drawn++) { const x = F.ox + P[i].x * F.z, y = F.oy + P[i].y * F.z; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.strokeStyle = SHU; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.stroke();
+  }
+  ctx.restore();
+  ctx.fillStyle = 'rgba(42,36,32,0.25)'; rrect(W - 140, top + mh - 8, 124, 20, 10); ctx.fill();
+  ctx.fillStyle = 'rgba(42,36,32,0.5)'; ctx.fillRect(W - 132, top + mh + 2, 12, 2); inkText('本物', W - 116, top + mh + 2, 10, '#fff', 'left');
+  ctx.fillStyle = SHU; ctx.fillRect(W - 84, top + mh + 1, 12, 3); inkText('あなた', W - 68, top + mh + 2, 10, '#fff', 'left');
+  // 誤差
+  const y0 = top + mh + 30, rk = t < 0.7 ? 0 : Math.min(1, (t - 0.7) / 0.5), shownErr = R.avg * (1 - Math.pow(1 - rk, 3));
+  inkText('平均誤差', 40, y0, 16, INK, 'left');
+  if (t > 0.7) neon(fmtKm(shownErr) + ' km', W - 30, y0, 34, R.tier <= 1 ? NEON.cyan : R.tier <= 3 ? NEON.yellow : '#ff3b3b', { align: 'right', sc: t > 1.2 && t < 1.35 ? 1.15 : 1 });
+  // 忠敬の何万倍速
+  if (t > 1.25) {
+    const pop = Math.min(1, (t - 1.25) / 0.15);
+    neon(`伊能忠敬の ${Math.round(R.speed / 1e4).toLocaleString()}万倍速!!`, W / 2, y0 + 40, 20, NEON.pink, { sc: 0.6 + pop * 0.4, rot: -0.03 });
+    inkText(`忠敬 17年 → あなた ${R.el.toFixed(1)}秒`, W / 2, y0 + 63, 12, SUMI);
+  }
+  // 忠敬のコメント
+  if (t > 1.5) {
+    const pop = Math.min(1, (t - 1.5) / 0.2), iy = y0 + 116;
+    ctx.save(); ctx.translate(60, iy); ctx.scale(pop, pop); ctx.translate(-60, -iy); drawIno(60, iy, 30, R.tier); ctx.restore();
+    if (pop >= 1) bubble(104, iy - 6, W - 116, R.cm, 15, 90, iy + 2);
+    const sy = y0 + 176;
+    inkText(`PERFECT ${G.cnt[0]}/${NSEG}　コンボ ${G.maxCombo}　ノンストップ ${G.maxChain}`, W / 2, sy, 12.5, SUMI);
+    inkText(`所持金 ${fmtRyo(G.score)}両　ベスト誤差 ${fmtKm(R.best.err)}km`, W / 2, sy + 19, 13, SUMI);
+  }
+  if (t > 1.7 && (R.nbErr || R.nbRyo)) { // 自己ベストのはんこ
+    ctx.save(); ctx.translate(92, y0 - 30); ctx.rotate(-0.18); const sc = 1 + Math.max(0, 0.15 - (t - 1.7)) * 4; ctx.scale(sc, sc);
+    ctx.strokeStyle = SHU; ctx.lineWidth = 2.5; ctx.fillStyle = 'rgba(255,253,246,0.85)'; rrect(-58, -15, 116, 30, 5); ctx.fill(); ctx.stroke();
+    inkText(R.nbErr ? '自己ベスト更新!!' : '最高額 更新!!', 0, 1, 15, SHU); ctx.restore();
+  }
+  if (t > 0.6) {
+    const b = resultBtns();
+    ctx.fillStyle = '#fffdf6'; ctx.strokeStyle = INK; ctx.lineWidth = 2; rrect(b.retry.x, b.retry.y, b.retry.w, b.retry.h, 25); ctx.fill(); ctx.stroke();
+    inkText('もう一度', b.retry.x + b.retry.w / 2, b.retry.y + b.retry.h / 2 + 1, 19, INK);
+    ctx.fillStyle = DARK; ctx.save(); ctx.shadowColor = NEON.pink; ctx.shadowBlur = 12; rrect(b.share.x, b.share.y, b.share.w, b.share.h, 25); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = NEON.pink; ctx.lineWidth = 2; ctx.stroke();
+    neon('Xでシェア', b.share.x + b.share.w / 2, b.share.y + b.share.h / 2 + 1, 18, NEON.cyan);
+    inkText('タイトルへ', W / 2, b.menu.y + 13, 13, SUMI);
+  }
+}
+
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(paperCv, 0, 0);
+  ctx.setTransform(DPR * S, 0, 0, DPR * S, 0, 0);
+  if (G.shake > 0) { const a = G.shake * 14; ctx.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a); }
+  if (G.state === 'title') drawTitle();
+  else if (G.state === 'play') drawPlay();
+  else drawResult();
+  ctx.setTransform(DPR * S, 0, 0, DPR * S, 0, 0);
+  if (G.flash > 0 && G.state !== 'play') { ctx.save(); ctx.globalAlpha = G.flash * 0.6; ctx.fillStyle = G.flashCol; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+  if (G.state === 'title') { ctx.fillStyle = 'rgba(29,21,48,0.75)'; ctx.beginPath(); ctx.arc(W - 20, 22, 16, 0, Math.PI * 2); ctx.fill(); drawMute(W - 20, 22); }
+}
+
+// ================= 入力 =================
+const inBox = (b, x, y) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+function muteHit(x, y) {
+  if (G.state === 'result' || G.phase === 'rush' && G.state === 'play') return false;
+  return Math.hypot(x - L.mute.x, y - (G.state === 'title' ? 22 : L.mute.y)) < 22;
+}
+function share() {
+  const url = /^https?:/.test(location.protocol) && location.hostname.endsWith('github.io') ? location.origin + location.pathname : URL_PUBLIC;
+  const R = G.res;
+  const msg = `ドパ脳忠敬で 日本を爆速測量！\n伊能忠敬の${Math.round(R.speed / 1e4).toLocaleString()}万倍速・平均誤差${fmtKm(R.avg)}km\n忠敬「${R.cm.replace(/　/g, ' ')}」\n#ドパ脳忠敬`;
+  const u = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(msg) + '&url=' + encodeURIComponent(url);
+  const w = window.open(u, '_blank'); if (!w) location.href = u;
+}
+function onPress(x, y, tt) {
+  audioInit();
+  if (muteHit(x, y)) { muted = !muted; store.set('dp_mute', muted); return; }
+  if (G.state === 'title') { startRun(); return; }
+  if (G.state === 'result') {
+    if (since() < 0.6) { G.st = G.t - 2.0; return; } // 演出を飛ばす
+    const b = resultBtns();
+    if (inBox(b.share, x, y)) share(); else if (inBox(b.retry, x, y)) startRun(); else if (inBox(b.menu, x, y)) setState('title');
+    return;
+  }
+  tap(tt);
+}
+function evTime(e) { const ts = e.timeStamp; return (ts > 0 && ts < 1e11 ? ts : performance.now()) / 1000; }
+cv.addEventListener('pointerdown', e => { e.preventDefault(); onPress((e.clientX - OX) / S, (e.clientY - OY) / S, evTime(e)); });
+document.addEventListener('touchend', audioInit, { passive: true });
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('gesturestart', e => e.preventDefault());
+window.addEventListener('keydown', e => {
+  if (e.repeat) return; audioInit();
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (G.state === 'result') { if (since() > 0.6) startRun(); } else onPress(-99, -99, evTime(e)); }
+});
+
+// ================= ループ =================
+resize();
+let last = performance.now();
+function frame(nw) { requestAnimationFrame(frame); const dt = Math.max(0, Math.min(0.05, (nw - last) / 1000)); last = nw; update(dt); render(); }
+requestAnimationFrame(frame);
+if (document.fonts && document.fonts.load) { // 使う文字のフォントを先に読み込んでおく（最初の画面から正しい字で出す）
+  const neonTxt = 'ドパ脳忠敬測量開始PERFECT!!GREATGOODCOMBO0123456789.,+×/km万億兆両里連覚醒超爆速音光神モード大当たりおしいハズレ金の梵天竹九十九里浜ラッシュ制覇本州へ蝦夷地四国九州日本完成時間切れ伊能倍速あなたは何？連打よーい測れタップXでシェア';
+  const inkTxt = ISL.flatMap(I => I.pts.map(p => p[2])).join('') + COMMENTS.flat().join('') + INO_SAY.flat().join('') + CHAIN_SAY.join('') + 'のこり所持金あなたの日本地図平均誤差本物忠敬年秒ベスト更新最高額もう一度タイトルへビートに合わせて線が梵天竹に重なったらタップずれた分だけ日本がゆがむ自己ベスト誤差閉合ノンストップテンポ切れ…（）忠敬の故郷わしの17年、60秒で超えてみよ!!息切れか？連打じゃはやすぎるもっと速く走れい時間切れじゃ大当たりじゃあ金じゃドパミンじゃあもったいないあと少しじゃよし次じゃちと閉じとらんぞわしのコンボが';
+  document.fonts.load('40px "Dela Gothic One"', neonTxt).catch(() => { }); document.fonts.load('16px "Yuji Syuku"', inkTxt).catch(() => { });
+}
+
+// テスト用（遊びには影響しません）
+window.__dp = { G, L, ISL, NSEG, COMMENTS, TAP_LAG, MUS, update, tap, startRun, record, finishRun, beatTime, beatPos, now, audio: () => AC && AC.state };
+})();
+</script>
+</body>
+</html>
